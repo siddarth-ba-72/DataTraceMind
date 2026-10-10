@@ -181,6 +181,20 @@ FIX = {
     "DS-01": ("refund_statuses: [COMPLETED]", "refund_statuses: [SUCCEEDED]"),
     "DS-02": ("amount_column: total_amount", "amount_column: order_total"),
     "DS-03": ("payment_join: inner", "payment_join: left"),
+    "DS-04": ("mode: append", "mode: replace_by_key"),
+    "DS-07": ("timezone: UTC", "timezone: Asia/Kolkata"),
+    "DS-16": ("refund_amount_basis: order_total", "refund_amount_basis: refund_amount"),
+    "DS-17": ("payment_statuses: [CAPTURED, FAILED]", "payment_statuses: [CAPTURED]"),
+}
+# Root-cause category a correct diagnosis of each repairable scenario names.
+CATEGORY = {
+    "DS-01": "refund_logic",
+    "DS-02": "schema_drift",
+    "DS-03": "join_loss",
+    "DS-04": "duplicate_load",
+    "DS-07": "timezone",
+    "DS-16": "refund_logic",
+    "DS-17": "payment_logic",
 }
 # A change that parses but breaks the contract: pending refunds get subtracted.
 WRONG_FIX = ("refund_statuses: [COMPLETED]", "refund_statuses: [SUCCEEDED, PENDING]")

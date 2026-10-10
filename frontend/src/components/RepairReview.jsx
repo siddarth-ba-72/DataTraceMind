@@ -2,7 +2,7 @@
 // the human decision. The server enforces every rule; this page only shows them.
 import { useState } from "react";
 import { api, useAction } from "../api.js";
-import { dateTime, money, signedMoney } from "../format.js";
+import { dateTime, money, number, signedMoney } from "../format.js";
 import { Badge, Button, Card, ErrorNote, KeyValue } from "./common.jsx";
 
 const STAGES = ["proposed", "validated", "approved", "applied", "verified"];
@@ -39,35 +39,53 @@ function BeforeAfter({ data }) {
   const currencies = Object.keys(data.before.by_currency);
   const cell = (side, currency) =>
     side.by_currency[currency].within_tolerance ? (
-      <Badge tone="good">matches source</Badge>
+      <Badge tone="good">Matches</Badge>
     ) : (
       <Badge tone="critical">{signedMoney(side.by_currency[currency].net_difference, currency)}</Badge>
     );
   return (
-    <table className="table numeric">
-      <thead>
-        <tr>
-          <th>Currency</th>
-          <th>Source-derived net</th>
-          <th>Analytics now</th>
-          <th>Staging with patch</th>
-          <th>Now vs source</th>
-          <th>Staging vs source</th>
-        </tr>
-      </thead>
-      <tbody>
-        {currencies.map((currency) => (
-          <tr key={currency}>
-            <td>{currency}</td>
-            <td>{money(data.before.by_currency[currency].source.net, currency)}</td>
-            <td>{money(data.before.by_currency[currency].analytics.net, currency)}</td>
-            <td>{money(data.after.by_currency[currency].analytics.net, currency)}</td>
-            <td>{cell(data.before, currency)}</td>
-            <td>{cell(data.after, currency)}</td>
+    <div className="table-scroll">
+      <table className="table table-inset numeric">
+        <thead>
+          <tr>
+            <th>Currency</th>
+            <th className="right">Source net</th>
+            <th className="right">Analytics now</th>
+            <th className="right">Staging, patched</th>
+            <th>Now vs source</th>
+            <th>Staging vs source</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {currencies.map((currency) => (
+            <tr key={currency}>
+              <td>{currency}</td>
+              <td className="right">{money(data.before.by_currency[currency].source.net, currency)}</td>
+              <td className="right">{money(data.before.by_currency[currency].analytics.net, currency)}</td>
+              <td className="right">{money(data.after.by_currency[currency].analytics.net, currency)}</td>
+              <td>{cell(data.before, currency)}</td>
+              <td>{cell(data.after, currency)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// Staging loads the same rows a second time; an idempotent load changes nothing.
+function Replay({ replay }) {
+  if (!replay?.run_id) return null;
+  return (
+    <p className="note">
+      <Badge tone={replay.passed ? "good" : "critical"}>{replay.passed ? "Replay safe" : "Replay failed"}</Badge>
+      <span>
+        Staging run {replay.run_id} loaded the same {number(replay.loaded)} rows a second time, as a retry would.{" "}
+        {replay.passed
+          ? "Every quality check still passes, so the load is idempotent."
+          : `It then failed ${replay.failed_checks.join(", ") || "to complete"}.`}
+      </span>
+    </p>
   );
 }
 
@@ -101,7 +119,7 @@ function Decision({ incident, proposal, onChanged }) {
         </label>
       </div>
       <div className="decision-actions">
-        <Button kind="primary" busy={action.busy} disabled={!approver.trim()} onClick={() => decide("approve")}>
+        <Button kind="primary" icon="check" busy={action.busy} disabled={!approver.trim()} onClick={() => decide("approve")}>
           Approve and apply
         </Button>
         <Button kind="danger" busy={action.busy} disabled={!approver.trim()} onClick={() => decide("reject", { reason: reason.trim() || null })}>
@@ -123,6 +141,7 @@ export default function RepairReview({ incident, onChanged }) {
 
   return (
     <Card
+      id="repair"
       title={`Repair review · ${proposal.proposal_id}`}
       subtitle={`Patch ${proposal.patch_hash.slice(0, 12)} against transformation version ${proposal.base_version} · proposed ${dateTime(proposal.created_at)}`}
       actions={<Badge value={proposal.status} />}
@@ -164,6 +183,7 @@ export default function RepairReview({ incident, onChanged }) {
             </ul>
           )}
           <BeforeAfter data={validation.before_after} />
+          <Replay replay={validation.replay} />
           <div className="columns">
             <div>
               <h4>

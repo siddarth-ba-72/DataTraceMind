@@ -61,6 +61,26 @@ export function ago(seconds) {
   return `${Math.round(seconds / 3600)} h ago`;
 }
 
+// How long ago an instant was, or how long a span lasted, in the largest sensible unit.
+export function duration(seconds) {
+  if (seconds === null || seconds === undefined || Number.isNaN(seconds)) return "–";
+  const s = Math.max(0, Math.round(seconds));
+  if (s < 90) return `${s}s`;
+  if (s < 5400) return `${Math.round(s / 60)} min`;
+  if (s < 129600) return `${Math.round(s / 3600)} h`;
+  return `${Math.round(s / 86400)} d`;
+}
+
+export function since(iso, now = Date.now()) {
+  if (!iso) return "–";
+  return `${duration((now - new Date(iso).getTime()) / 1000)} ago`;
+}
+
+export function between(startIso, endIso) {
+  if (!startIso || !endIso) return "–";
+  return duration((new Date(endIso).getTime() - new Date(startIso).getTime()) / 1000);
+}
+
 export function titleCase(text) {
   return (text || "").replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 }

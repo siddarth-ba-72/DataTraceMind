@@ -2,8 +2,10 @@
 
 A proposal passes only if, with the patched transformation:
 - the regression fixtures give the contract's answers,
-- a full pipeline run into a fresh staging schema succeeds, and
-- every quality check passes on that staging target.
+- a full pipeline run into a fresh staging schema succeeds,
+- every quality check passes on that staging target, and
+- loading the same source rows a second time leaves every check passing
+  (a retry must not change the result).
 
 The demo's analytics schema and the active transformation are not touched.
 """
@@ -86,6 +88,26 @@ def _evaluate(proposal: dict) -> ValidationResult:
     failures += [f"quality check failed in staging: {check.name}" for check in run.failed_checks]
     if run.status == "SUCCESS":
         result.before_after = db.to_jsonable(_before_after(contract, run.watermark))
+        # A fresh staging load cannot show a load that is not idempotent, so
+        # the same rows are loaded once more, as a retry would.
+        replay = pipeline.run_once(
+            target_schema=db.STAGING_SCHEMA,
+            spec_text=proposal["new_content"],
+            transform_version=proposal["base_version"] + 1,
+            replay=True,
+            trigger="staging_replay",
+        )
+        failed = [check.name for check in replay.failed_checks]
+        result.replay = {
+            "run_id": replay.run_id,
+            "status": replay.status,
+            "loaded": replay.loaded,
+            "passed": replay.status == "SUCCESS" and not failed,
+            "failed_checks": failed,
+        }
+        if replay.status != "SUCCESS":
+            failures.append(f"replaying the load in staging failed: {replay.error_summary}")
+        failures += [f"quality check failed after replaying the load in staging: {name}" for name in failed]
 
     result.failures = failures
     result.passed = not failures

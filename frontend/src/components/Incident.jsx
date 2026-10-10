@@ -1,9 +1,11 @@
-// Incident page: anomaly -> evidence -> root cause -> patch -> staging proof ->
-// human approval -> verified recovery, top to bottom.
+// Incidents: the list, and one incident's page. The page reads top to bottom:
+// anomaly -> evidence -> root cause -> patch -> staging proof -> human approval
+// -> verified recovery.
 import { useState } from "react";
 import { api, useAction, usePoll } from "../api.js";
-import { clock, dateTime, money, number, titleCase } from "../format.js";
-import { Badge, Button, Card, Empty, ErrorNote, Json } from "./common.jsx";
+import { between, clock, dateTime, money, number, signedMoney, since, titleCase } from "../format.js";
+import { Badge, Button, Card, Empty, ErrorNote, Facts, Json, PageHead, Segmented } from "./common.jsx";
+import { Icon } from "./icons.jsx";
 import RepairReview from "./RepairReview.jsx";
 
 const LIFECYCLE = [
@@ -26,58 +28,80 @@ const OFF_PATH = new Set(["validation_failed", "application_failed", "rejected",
 function Lifecycle({ incident }) {
   const visited = new Set(incident.events.filter((e) => e.event_type === "lifecycle").map((e) => e.status));
   return (
-    <ol className="lifecycle" aria-label="Incident lifecycle">
-      {LIFECYCLE.map(([status, label]) => {
-        const state = incident.status === status ? "current" : visited.has(status) ? "done" : "todo";
-        return (
-          <li key={status} className={`step step-${state}`} aria-current={state === "current" ? "step" : undefined}>
-            <span className="step-dot" aria-hidden="true">
-              {state === "done" ? "✓" : ""}
-            </span>
-            {label}
-          </li>
-        );
-      })}
-    </ol>
+    <div className="lifecycle-scroll">
+      <ol className="lifecycle" aria-label="Incident lifecycle">
+        {LIFECYCLE.map(([status, label]) => {
+          const state = incident.status === status ? "current" : visited.has(status) ? "done" : "todo";
+          return (
+            <li key={status} className={`step step-${state}`} aria-current={state === "current" ? "step" : undefined}>
+              <span className="step-dot" aria-hidden="true">
+                {state === "done" ? "✓" : ""}
+              </span>
+              {label}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+const MEASURES = [
+  ["gross", "Gross paid"],
+  ["refunds", "Refunds subtracted"],
+  ["net", "Net revenue"],
+];
+
+// Source against analytics as the monitor recorded them, one measure per row.
+function TriggerMetrics({ incident }) {
+  const currencies = Object.keys(incident.source_metrics || {});
+  if (currencies.length === 0) return null;
+  return (
+    <div className="table-scroll">
+      <table className="table table-inset numeric">
+        <thead>
+          <tr>
+            <th>Currency</th>
+            <th>Measure</th>
+            <th className="right">Source-derived</th>
+            <th className="right">Analytics</th>
+            <th className="right">Difference</th>
+          </tr>
+        </thead>
+        <tbody>
+          {currencies.flatMap((currency) =>
+            MEASURES.map(([key, label], index) => {
+              const source = incident.source_metrics[currency][key];
+              const target = incident.target_metrics[currency][key];
+              const gap = target - source;
+              const differs = Math.abs(gap) > 0.005;
+              return (
+                <tr key={`${currency}-${key}`} className={key === "net" ? "row-strong" : ""}>
+                  <td>{index === 0 ? currency : ""}</td>
+                  <td>{label}</td>
+                  <td className="right">{money(source, currency)}</td>
+                  <td className="right">{money(target, currency)}</td>
+                  <td className="right">
+                    {differs ? <span className="differs">{signedMoney(gap, currency)}</span> : <span className="muted">matches</span>}
+                  </td>
+                </tr>
+              );
+            }),
+          )}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
 function Trigger({ incident }) {
-  const currencies = Object.keys(incident.source_metrics || {});
   return (
-    <Card title="What the monitor found" subtitle={`Deterministic checks after ETL run ${incident.trigger.etl_run_id ?? "–"} (${incident.trigger.etl_status ?? "freshness monitor"}). No model decides that something is wrong.`}>
-      {currencies.length > 0 && (
-        <table className="table numeric">
-          <thead>
-            <tr>
-              <th>Currency</th>
-              <th>Source gross</th>
-              <th>Source refunds</th>
-              <th>Source net</th>
-              <th>Analytics gross</th>
-              <th>Analytics refunds</th>
-              <th>Analytics net</th>
-            </tr>
-          </thead>
-          <tbody>
-            {currencies.map((currency) => {
-              const source = incident.source_metrics[currency];
-              const target = incident.target_metrics[currency];
-              return (
-                <tr key={currency}>
-                  <td>{currency}</td>
-                  <td>{money(source.gross, currency)}</td>
-                  <td>{money(source.refunds, currency)}</td>
-                  <td>{money(source.net, currency)}</td>
-                  <td>{money(target.gross, currency)}</td>
-                  <td>{money(target.refunds, currency)}</td>
-                  <td>{money(target.net, currency)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
+    <Card
+      id="detection"
+      title="What the monitor found"
+      subtitle={`Deterministic checks after ETL run ${incident.trigger.etl_run_id ?? "–"} (${incident.trigger.etl_status ?? "freshness monitor"}). No model decides that something is wrong.`}
+    >
+      <TriggerMetrics incident={incident} />
       <ul className="checks">
         {incident.trigger.failed_checks.map((check) => (
           <li key={check.check_name}>
@@ -105,7 +129,7 @@ function Timeline({ events }) {
           <span className="event-body">
             <Badge value={event.status} />{" "}
             {event.event_type === "tool_call" && <span className="tag">tool</span>}
-            {event.payload?.evidence_id && <span className="tag">{event.payload.evidence_id}</span>} {event.summary}
+            {event.payload?.evidence_id && <span className="tag tag-strong">{event.payload.evidence_id}</span>} {event.summary}
             {event.payload?.input_tokens !== undefined && (
               <span className="muted">
                 {" "}
@@ -154,6 +178,7 @@ function Hypotheses({ state }) {
   const selected = state.selected_root_cause;
   return (
     <Card
+      id="root-cause"
       title="Root cause"
       subtitle="Competing hypotheses ranked by the analyst. A cause counts as confirmed only when it cites evidence that exists and clears the confidence bar."
       actions={selected ? <Badge tone="good">Confirmed</Badge> : <Badge tone="warning">Not confirmed</Badge>}
@@ -185,13 +210,21 @@ function Hypotheses({ state }) {
             <p className="evidence-links">
               {h.supporting_evidence.length > 0 && <span className="muted">Supported by </span>}
               {h.supporting_evidence.map((id) => (
-                <a key={id} className="tag" href={`#${id}`} onClick={(e) => { e.preventDefault(); document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "center" }); }}>
+                <a
+                  key={id}
+                  className="tag tag-strong"
+                  href={`#${id}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                  }}
+                >
                   {id}
                 </a>
               ))}
               {h.contradicting_evidence.length > 0 && <span className="muted"> Contradicted by </span>}
               {h.contradicting_evidence.map((id) => (
-                <span key={id} className="tag">
+                <span key={id} className="tag tag-strong">
                   {id}
                 </span>
               ))}
@@ -206,7 +239,12 @@ function Hypotheses({ state }) {
 function Runs({ runs }) {
   if (runs.length === 0) return null;
   return (
-    <Card title="Investigation runs" subtitle="One row per run; each is one neatlogs trace. Cost is an estimate at API list prices (the model runs on a flat-rate plan).">
+    <Card
+      id="runs"
+      title="Investigation runs"
+      subtitle="One row per run; each is one neatlogs trace. Cost is an estimate at API list prices (the model runs on a flat-rate plan)."
+      flush
+    >
       <div className="table-scroll">
         <table className="table numeric">
           <thead>
@@ -215,34 +253,38 @@ function Runs({ runs }) {
               <th>Outcome</th>
               <th>Workflow</th>
               <th>Model</th>
-              <th>Duration</th>
-              <th>Role turns</th>
-              <th>Tool calls</th>
-              <th>Failed / retries</th>
-              <th>Input tokens</th>
-              <th>Output tokens</th>
-              <th>Est. cost</th>
+              <th className="right">Duration</th>
+              <th className="right">Role turns</th>
+              <th className="right">Tool calls</th>
+              <th className="right">Failed / retries</th>
+              <th className="right">Input tokens</th>
+              <th className="right">Output tokens</th>
+              <th className="right">Est. cost</th>
               <th>Trace ID</th>
             </tr>
           </thead>
           <tbody>
             {runs.map((run) => (
               <tr key={run.run_id}>
-                <td>#{run.run_id}</td>
+                <td>
+                  <span className="id">#{run.run_id}</span>
+                </td>
                 <td>
                   <Badge value={run.status} />
                 </td>
                 <td>{run.workflow_version}</td>
                 <td>{run.model}</td>
-                <td>{run.duration_s ? `${Number(run.duration_s).toFixed(0)}s` : "–"}</td>
-                <td>{run.role_turns}</td>
-                <td>{run.tool_calls}</td>
-                <td>
+                <td className="right">{run.duration_s ? `${Number(run.duration_s).toFixed(0)}s` : "–"}</td>
+                <td className="right">{run.role_turns}</td>
+                <td className="right">{run.tool_calls}</td>
+                <td className="right">
                   {run.failed_tool_calls} / {run.retries}
                 </td>
-                <td title={`${number(run.cached_input_tokens)} cached`}>{number(run.input_tokens)}</td>
-                <td>{number(run.output_tokens)}</td>
-                <td>${Number(run.est_cost_usd).toFixed(3)}</td>
+                <td className="right" title={`${number(run.cached_input_tokens)} cached`}>
+                  {number(run.input_tokens)}
+                </td>
+                <td className="right">{number(run.output_tokens)}</td>
+                <td className="right">${Number(run.est_cost_usd).toFixed(3)}</td>
                 <td>
                   <code>{run.trace_id ? `${run.trace_id.slice(0, 12)}…` : "not traced"}</code>
                 </td>
@@ -252,6 +294,72 @@ function Runs({ runs }) {
         </table>
       </div>
     </Card>
+  );
+}
+
+// Facts about the incident and its latest investigation, beside the narrative.
+function Aside({ incident }) {
+  const trigger = incident.trigger;
+  const run = incident.investigation_runs.at(-1);
+  const sections = [
+    ["detection", "Detection", `${trigger.failed_checks.length} failed checks`],
+    (incident.state.hypotheses || []).length > 0 && ["root-cause", "Root cause", `${incident.state.hypotheses.length} hypotheses`],
+    incident.proposal && ["repair", "Repair review", titleCase(incident.proposal.status)],
+    ["workflow", "Agent workflow", `${incident.events.length} events`],
+    ["evidence", "Evidence", `${incident.evidence.length} items`],
+    incident.investigation_runs.length > 0 && ["runs", "Investigation runs", String(incident.investigation_runs.length)],
+  ].filter(Boolean);
+  return (
+    <aside className="aside">
+      <Card title="Incident details">
+        <Facts
+          rows={[
+            ["Type", titleCase(incident.incident_type)],
+            ["Severity", <Badge key="s" value={incident.severity} />],
+            ["Detected", dateTime(incident.detected_at)],
+            ["Detected by", titleCase(trigger.detected_by)],
+            ["ETL run", trigger.etl_run_id ? `#${trigger.etl_run_id} · ${trigger.etl_status}` : null],
+            ["Transformation", trigger.transform_version ? `Version ${trigger.transform_version}` : null],
+            ["Resolved", incident.resolved_at ? dateTime(incident.resolved_at) : null],
+            ["Time to resolve", incident.resolved_at ? between(incident.detected_at, incident.resolved_at) : null],
+          ]}
+        />
+      </Card>
+      {run && (
+        <Card title="Latest investigation">
+          <Facts
+            rows={[
+              // A finished run is labelled by where it stopped; a running one has not stopped.
+              [run.status === "running" ? "Status" : "Ended at", <Badge key="o" value={run.status} />],
+              ["Model", run.model],
+              ["Workflow", run.workflow_version],
+              ["Duration", run.duration_s ? `${Number(run.duration_s).toFixed(0)}s` : null],
+              ["Role turns", run.role_turns],
+              ["Tool calls", run.tool_calls],
+              ["Est. cost", `$${Number(run.est_cost_usd).toFixed(3)}`],
+            ]}
+          />
+        </Card>
+      )}
+      <Card title="On this page">
+        <ul className="section-nav">
+          {sections.map(([id, label, detail]) => (
+            <li key={id}>
+              <a
+                href={`#${id}`}
+                onClick={(event) => {
+                  // The hash holds the route, so scroll instead of navigating.
+                  event.preventDefault();
+                  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+              >
+                {label} <span className="muted">{detail}</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </Card>
+    </aside>
   );
 }
 
@@ -278,22 +386,29 @@ function IncidentDetail({ incidentId, agent, onChanged }) {
 
   return (
     <div className="stack">
-      <Card>
+      <section className="card incident-hero">
         <div className="incident-head">
           <div>
             <h1>
-              {incident.incident_id} <Badge value={incident.severity} /> <Badge value={incident.status} />
+              <span className="id">{incident.incident_id}</span> <Badge value={incident.severity} /> <Badge value={incident.status} />
             </h1>
             <p className="incident-summary">{incident.summary}</p>
-            <p className="muted">
-              {titleCase(incident.incident_type)} · detected {dateTime(incident.detected_at)}
-              {incident.resolved_at ? ` · resolved ${dateTime(incident.resolved_at)}` : ""}
+            <p className="incident-meta">
+              <span>{titleCase(incident.incident_type)}</span>
+              <span>Detected {dateTime(incident.detected_at)}</span>
+              <span>
+                {incident.resolved_at
+                  ? `Resolved in ${between(incident.detected_at, incident.resolved_at)}`
+                  : `Open for ${since(incident.detected_at).replace(" ago", "")}`}
+              </span>
             </p>
           </div>
           {canInvestigate && (
             <div className="incident-actions">
               <Button
                 kind="primary"
+                size="large"
+                icon="zap"
                 onClick={investigate}
                 busy={action.busy}
                 disabled={!agent?.available || agent?.investigation_running}
@@ -309,66 +424,149 @@ function IncidentDetail({ incidentId, agent, onChanged }) {
         <Lifecycle incident={incident} />
         {OFF_PATH.has(incident.status) && (
           <p className="note note-error">
-            <strong>{titleCase(incident.status)}.</strong>{" "}
-            {incident.status === "escalated" && escalation
-              ? `A human needs to take this: ${escalation.reason}`
-              : incident.events.at(-1)?.summary}
+            <span>
+              <strong>{titleCase(incident.status)}.</strong>{" "}
+              {incident.status === "escalated" && escalation
+                ? `A human needs to take this: ${escalation.reason}`
+                : incident.events.at(-1)?.summary}
+            </span>
           </p>
         )}
-      </Card>
+      </section>
 
-      <Trigger incident={incident} />
-      <Hypotheses state={incident.state} />
-      <RepairReview incident={incident} onChanged={changed} />
+      <div className="detail-grid">
+        <div className="stack">
+          <Trigger incident={incident} />
+          <Hypotheses state={incident.state} />
+          <RepairReview incident={incident} onChanged={changed} />
 
-      <Card
-        title="Agent workflow"
-        subtitle="Every step the supervisor and the agent roles took, in order."
+          <Card
+            id="workflow"
+            title="Agent workflow"
+            subtitle="Every step the supervisor and the agent roles took, in order."
+            actions={
+              <label className="field-inline">
+                <input type="checkbox" checked={showTools} onChange={(event) => setShowTools(event.target.checked)} /> Show tool calls
+              </label>
+            }
+          >
+            <Timeline events={events} />
+          </Card>
+
+          <Card
+            id="evidence"
+            title={`Evidence · ${incident.evidence.length} items`}
+            subtitle="Each item is the recorded result of a tool call, a contract, or code as deployed. Open one to see exactly what was returned."
+          >
+            <Evidence evidence={incident.evidence} cited={cited} />
+          </Card>
+
+          <Runs runs={incident.investigation_runs} />
+        </div>
+        <Aside incident={incident} />
+      </div>
+    </div>
+  );
+}
+
+const FILTERS = {
+  all: () => true,
+  open: (incident) => incident.status !== "resolved",
+  resolved: (incident) => incident.status === "resolved",
+};
+
+function IncidentList({ incidents, onSelect }) {
+  const [filter, setFilter] = useState("all");
+  const shown = incidents.filter(FILTERS[filter]);
+  const count = (name) => incidents.filter(FILTERS[name]).length;
+  return (
+    <div className="stack">
+      <PageHead
+        title="Incidents"
+        subtitle="Opened by the monitor when a pipeline run fails a quality check. One incident stays open per unresolved problem."
         actions={
-          <label className="field-inline">
-            <input type="checkbox" checked={showTools} onChange={(event) => setShowTools(event.target.checked)} /> Show tool calls
-          </label>
+          <Segmented
+            label="Filter incidents"
+            value={filter}
+            onChange={setFilter}
+            options={[
+              { value: "all", label: "All", count: count("all") },
+              { value: "open", label: "Open", count: count("open") },
+              { value: "resolved", label: "Resolved", count: count("resolved") },
+            ]}
+          />
         }
-      >
-        <Timeline events={events} />
+      />
+      <Card flush>
+        {shown.length === 0 ? (
+          <div className="blank">
+            <div className="blank-icon">
+              <Icon name="check" size={20} />
+            </div>
+            <h2>{incidents.length === 0 ? "No incidents" : `No ${filter} incidents`}</h2>
+            <p>
+              {incidents.length === 0
+                ? "Every quality check on the latest pipeline run passed. To see the workflow, inject a fault from the Scenario Lab."
+                : "Nothing matches this filter."}
+            </p>
+            {incidents.length === 0 && (
+              <a className="button" href="/lab/" target="_blank" rel="noreferrer">
+                <Icon name="flask" size={14} /> Open the Scenario Lab
+              </a>
+            )}
+          </div>
+        ) : (
+          <div className="table-scroll">
+            <table className="table clickable">
+              <thead>
+                <tr>
+                  <th>Incident</th>
+                  <th>Severity</th>
+                  <th>Status</th>
+                  <th>Type</th>
+                  <th>Summary</th>
+                  <th>Detected</th>
+                  <th className="right">Duration</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((incident) => (
+                  <tr key={incident.incident_id} onClick={() => onSelect(incident.incident_id)}>
+                    <td className="nowrap">
+                      <button type="button" className="link id" onClick={() => onSelect(incident.incident_id)}>
+                        {incident.incident_id}
+                      </button>
+                    </td>
+                    <td>
+                      <Badge value={incident.severity} />
+                    </td>
+                    <td>
+                      <Badge value={incident.status} />
+                    </td>
+                    <td className="nowrap">{titleCase(incident.incident_type)}</td>
+                    <td>
+                      <span className="cell-clip">{incident.summary}</span>
+                    </td>
+                    <td className="nowrap muted">{dateTime(incident.detected_at)}</td>
+                    <td className="right nowrap muted">
+                      {incident.resolved_at
+                        ? between(incident.detected_at, incident.resolved_at)
+                        : `${since(incident.detected_at).replace(" ago", "")} open`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
-
-      <Card title={`Evidence · ${incident.evidence.length} items`} subtitle="Each item is the recorded result of a tool call, a contract, or code as deployed. Open one to see exactly what was returned.">
-        <Evidence evidence={incident.evidence} cited={cited} />
-      </Card>
-
-      <Runs runs={incident.investigation_runs} />
     </div>
   );
 }
 
 export default function Incidents({ selectedId, onSelect, agent, onChanged }) {
   const { data: incidents } = usePoll("/incidents", 3000);
+  if (selectedId) return <IncidentDetail key={selectedId} incidentId={selectedId} agent={agent} onChanged={onChanged} />;
   if (!incidents) return <Empty>Loading incidents…</Empty>;
-  if (incidents.length === 0)
-    return (
-      <Card title="Incidents">
-        <Empty>No incidents. The pipeline is healthy; inject a fault from the Scenario Lab to see one.</Empty>
-      </Card>
-    );
-  const current = selectedId && incidents.some((i) => i.incident_id === selectedId) ? selectedId : incidents[0].incident_id;
-  return (
-    <div className="stack">
-      {incidents.length > 1 && (
-        <nav className="incident-tabs" aria-label="Incidents">
-          {incidents.map((incident) => (
-            <button
-              key={incident.incident_id}
-              type="button"
-              className={incident.incident_id === current ? "active" : ""}
-              onClick={() => onSelect(incident.incident_id)}
-            >
-              {incident.incident_id} <Badge value={incident.status} />
-            </button>
-          ))}
-        </nav>
-      )}
-      <IncidentDetail key={current} incidentId={current} agent={agent} onChanged={onChanged} />
-    </div>
-  );
+  return <IncidentList incidents={incidents} onSelect={onSelect} />;
 }

@@ -15,7 +15,7 @@ from datatracemind.repair.approval import ApprovalRefused
 from datatracemind.repair.executor import ApplyRefused
 from datatracemind.repair.patch_store import PatchRejected
 from etl import pipeline, transform_store
-from tests.support import FIX, WRONG_FIX, ScriptedProvider, active_transform, diagnosis, incident, repair, statuses
+from tests.support import CATEGORY, FIX, WRONG_FIX, ScriptedProvider, active_transform, diagnosis, incident, repair, statuses
 
 OTHER_HASH = "0" * 64
 
@@ -196,7 +196,9 @@ def test_staging_validation_does_not_touch_the_demo_environment(baseline):
     assert db.fetch_all("SELECT * FROM analytics.daily_revenue ORDER BY 1, 2") == before
     assert transform_store.get_active().version == version
     staging = validation.staging_runs()
-    assert staging[0]["trigger"] == "staging_validation" and staging[0]["status"] == "SUCCESS"
+    # Newest first: the replay of the load, then the full run it follows.
+    assert [run["trigger"] for run in staging] == ["staging_replay", "staging_validation"]
+    assert all(run["status"] == "SUCCESS" for run in staging)
 
 
 @pytest.mark.parametrize(
@@ -220,12 +222,47 @@ def test_patch_guardrails_reject_unsafe_or_oversized_changes(baseline, content, 
     assert db.fetch_all("SELECT 1 FROM dtm.repair_proposals") == []
 
 
-@pytest.mark.parametrize("scenario_id, category", [("DS-02", "schema_drift"), ("DS-03", "join_loss")])
-def test_other_scenarios_recover_end_to_end(baseline, scenario_id, category):
+@pytest.mark.parametrize("scenario_id", sorted(set(FIX) - {"DS-01"}))
+def test_other_scenarios_recover_end_to_end(baseline, scenario_id):
     incident_id = demo.inject(scenario_id)["incident_id"]
-    provider = ScriptedProvider({"root_cause_analyst": [diagnosis(category)], "repair_agent": [repair(FIX[scenario_id])]})
+    provider = ScriptedProvider(
+        {"root_cause_analyst": [diagnosis(CATEGORY[scenario_id])], "repair_agent": [repair(FIX[scenario_id])]}
+    )
     assert run_investigation(incident_id, provider=provider) == "awaiting_approval"
     outcome = supervisor.approve_and_apply(incident_id, current_hash(incident_id), actor="Asha Rao")
     assert outcome["passed"] is True
     assert incident(incident_id)["status"] == "resolved"
     assert metrics_summary()["trust"] == "trustworthy"
+
+
+def test_staging_replays_the_load_and_records_that_it_changed_nothing(awaiting):
+    replay = incident(awaiting)["proposal"]["validation_result"]["replay"]
+    assert replay["passed"] is True and replay["failed_checks"] == []
+    assert replay["status"] == "SUCCESS" and replay["loaded"] > 0
+    runs = db.fetch_all("SELECT trigger, full_refresh FROM staging.etl_run_log ORDER BY run_id")
+    assert runs == [
+        {"trigger": "staging_validation", "full_refresh": True},
+        {"trigger": "staging_replay", "full_refresh": False},
+    ]
+
+
+def test_a_patch_that_leaves_the_load_non_idempotent_fails_the_staging_replay(baseline):
+    """DS-04: a fresh staging load is clean with any load mode; only the replay tells them apart."""
+    incident_id = demo.inject("DS-04")["incident_id"]
+    cosmetic = ("# append inserts without removing earlier rows.", "# append inserts new rows only.")
+    provider = ScriptedProvider(
+        {"root_cause_analyst": [diagnosis("duplicate_load")], "repair_agent": [repair(cosmetic), repair(FIX["DS-04"])]}
+    )
+    assert run_investigation(incident_id, provider=provider) == "awaiting_approval"
+    assert provider.turns("repair_agent") == 2
+    rejected = db.fetch_one(
+        "SELECT status, validation_result FROM dtm.repair_proposals WHERE incident_id = %s ORDER BY proposal_id LIMIT 1",
+        (incident_id,),
+    )
+    assert rejected["status"] == "superseded"
+    first = rejected["validation_result"]
+    assert first["passed"] is False and first["staging_status"] == "SUCCESS"
+    assert not [check for check in first["checks"] if not check["passed"]]
+    assert "unique_business_keys" in first["replay"]["failed_checks"]
+    assert "quality check failed after replaying the load in staging: unique_business_keys" in first["failures"]
+    assert incident(incident_id)["proposal"]["validation_result"]["replay"]["passed"] is True

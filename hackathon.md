@@ -16,6 +16,101 @@ where the evidence is. Newest session first. Times are IST.
 | Building in public: `#neatHack` posts | None yet | – |
 | Demo video | Not recorded | – |
 
+## Session 2 — 10 October 2026, about 18:35–19:55
+
+Coding agent: Claude Code (Opus 5.5). Nothing from this session is committed
+yet; the changes are in the working tree on `main`.
+
+### What was built
+
+- **The Scenario Lab is its own page** (`/lab/`), separate from the incident
+  console (`/`). Traffic, fault injection, and reset moved to the lab; the
+  console keeps data trust, incidents, repair review, and the audit log, and
+  links to the lab.
+- **Every scenario is explained in the lab** before it is injected: what the
+  lab changes, what you will see, which checks should fail, why it matters,
+  and how the incident should end. After injecting, a report compares the
+  checks that failed with the ones expected.
+- **Six more scenarios**, nine in total: DS-04 duplicate ingestion on retry,
+  DS-06 new status value, DS-07 timezone boundary, DS-09 nullable amounts,
+  DS-16 partial refunds over-subtracted, DS-17 failed payments counted. DS-06
+  and DS-09 are meant to end in an escalation, not a patch.
+- **Live traffic reworked**: a rate (light, steady, busy), counters of what
+  the stream wrote, a one-off batch, and a status route. The start and stop
+  routes are unchanged.
+- **Staging validation replays the load.** A fresh staging load is clean with
+  any load mode, so it could not tell an append-only patch from a correct one.
+- **Monitor**: duplicate business keys now classify an incident ahead of the
+  revenue mismatch they cause.
+- **Console redesign**: sidebar and top bar, incident list and detail pages,
+  KPI tiles, a lifecycle stepper, light and dark themes on one set of tokens.
+
+### What was tested
+
+- `pytest`: **130 passed**. New tests cover each new scenario's documented
+  symptom, the two escalation endings, the staging replay rejecting a patch
+  that leaves the load append-only, the traffic routes, and that no module on
+  the agent's side imports the scenario package.
+- Both pages rendered in headless Chrome against a second instance on a
+  scratch database: baseline, DS-04 injected, awaiting approval, resolved,
+  DS-06 escalated, traffic running; light and dark; 1440 and 820 pixels wide.
+  The investigations in those checks used the scripted provider.
+- **One real DS-01 run, end to end, through the browser** (Claude in Chrome
+  on the main instance, at the user's request): reset in the lab, live
+  traffic started, rate changed, a batch sent and traffic paused, DS-01
+  injected, the lab's link followed to the console, **Investigate**, the
+  repair approved, and the lab reset again. No console errors on any page.
+
+  | Measure | Value |
+  |---|---|
+  | Outcome | `awaiting_approval`, then approved → applied → verified → `resolved` |
+  | Root-cause category | `refund_logic`, 0.99 confidence — correct |
+  | Repair | `refund_statuses: [COMPLETED]` → `[SUCCEEDED]`, one line — correct |
+  | Staging validation | passed: 10 of 10 regression cases, 12 of 12 quality checks, replay of 882 rows clean |
+  | Post-fix verification | ETL run 48 `SUCCESS` on transformation version 3, 12 of 12 checks |
+  | Detected → resolved | 3 min 4 s (investigation 86.7 s) |
+  | Role turns / tool calls | 4 / 10, none failed, no retries |
+  | Tokens | 286,565 input (204,288 cached), 3,783 output |
+  | Estimated cost | $0.24 at API list prices |
+  | Trace ID | `e39a117e7660a88efce0d2a85a42e5ec` |
+
+  The approval was entered by the coding agent under the name
+  "Claude E2E test", as part of the test the user asked for. It exercises the
+  approve, apply, and verify path with a real model's patch; it is not a
+  person's review of that patch. The environment was reset afterwards; the
+  incident record and database dumps from before and after the run are in
+  `docs/backups/` (git-ignored).
+
+### Not tested
+
+- **The new scenarios with the real model.** Only DS-01 was run with Codex.
+  None of the six new scenarios (nor DS-02 and DS-03) has been diagnosed by
+  it, so their briefings describe the intended ending, not an observed one.
+- In the browser, only the DS-01 path and the traffic controls were clicked
+  through. The other scenarios' injected, escalated, and resolved pages were
+  checked from screenshots of states set up through the API.
+- The trace above was not opened in neatlogs.
+- The recorded demo video shows the earlier single-page dashboard.
+
+### What failed or surprised, and what was done
+
+- DS-04 could not be injected in one step: deploying a new transformation
+  version forces a full rebuild, which is clean with any load mode. Scenarios
+  can now take a second step after the first run; the lab performs both runs.
+- For the same reason staging validation passed a patch that left
+  `load.mode: append`. The replay step was added and a test pins it.
+- A new traffic test compared two counts with the stream still running and
+  failed once. It now compares against the count returned when traffic stops.
+- The first look at the lab on the main instance failed: the frontend had
+  been rebuilt but the server process still held the old backend, so the page
+  hit a missing route and then crashed on a missing field. The server was
+  restarted, and the lab now says the server is out of date instead of
+  failing when the API lacks what it needs.
+- That instance had an incident open with no scenario recorded. Injecting on
+  top of it would have opened nothing, because the monitor keeps one incident
+  open at a time. The lab now reports that state and blocks injection until a
+  reset.
+
 ## Session 1 — 10 October 2026, 12:50–14:25
 
 Coding agent: Claude Code (Opus 5.5), inside an Entire-enabled session.

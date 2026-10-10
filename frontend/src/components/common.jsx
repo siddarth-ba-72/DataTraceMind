@@ -1,5 +1,6 @@
-// Small building blocks used across pages.
+// Small building blocks used across pages, in the console and in the lab.
 import { titleCase } from "../format.js";
+import { Icon } from "./icons.jsx";
 
 // A status is never shown by colour alone: every badge pairs a glyph with a label.
 const TONE = {
@@ -52,6 +53,13 @@ const STATUS_TONE = {
   untrusted: "critical",
 };
 
+export const TRUST_TEXT = {
+  trustworthy: "Data is trustworthy",
+  under_investigation: "Under investigation",
+  stale: "Data is stale",
+  untrusted: "Data does not reconcile",
+};
+
 export function Badge({ value, tone, children, title }) {
   const resolved = tone || STATUS_TONE[value] || "neutral";
   return (
@@ -64,9 +72,10 @@ export function Badge({ value, tone, children, title }) {
   );
 }
 
-export function Card({ title, subtitle, actions, children, className = "" }) {
+// `flush` lets a table inside run to the card's edges.
+export function Card({ id, title, subtitle, actions, children, className = "", flush = false }) {
   return (
-    <section className={`card ${className}`}>
+    <section id={id} className={`card ${flush ? "card-flush" : ""} ${className}`}>
       {(title || actions) && (
         <header className="card-head">
           <div>
@@ -76,16 +85,56 @@ export function Card({ title, subtitle, actions, children, className = "" }) {
           {actions && <div className="card-actions">{actions}</div>}
         </header>
       )}
-      {children}
+      <div className="card-body">{children}</div>
     </section>
   );
 }
 
-export function Button({ children, onClick, busy, disabled, kind = "default", title }) {
+export function PageHead({ title, subtitle, actions }) {
   return (
-    <button type="button" className={`button button-${kind}`} onClick={onClick} disabled={disabled || busy} title={title}>
+    <header className="page-head">
+      <div>
+        <h1>{title}</h1>
+        {subtitle && <p>{subtitle}</p>}
+      </div>
+      {actions && <div className="page-actions">{actions}</div>}
+    </header>
+  );
+}
+
+export function Button({ children, onClick, busy, disabled, kind = "default", size, icon, title }) {
+  return (
+    <button
+      type="button"
+      className={`button button-${kind} ${size ? `button-${size}` : ""}`}
+      onClick={onClick}
+      disabled={disabled || busy}
+      title={title}
+    >
+      {icon && !busy && <Icon name={icon} size={size === "large" ? 16 : 14} />}
       {busy ? "Working…" : children}
     </button>
+  );
+}
+
+// One choice out of a few, shown as a row of buttons.
+export function Segmented({ value, options, onChange, label, disabled }) {
+  return (
+    <div className="segmented" role="group" aria-label={label}>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          aria-pressed={option.value === value}
+          disabled={disabled}
+          title={option.title}
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+          {option.count !== undefined && <span className="count">{option.count}</span>}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -121,5 +170,30 @@ export function KeyValue({ rows }) {
         </div>
       ))}
     </dl>
+  );
+}
+
+// Label and value pairs for a narrow side panel.
+export function Facts({ rows }) {
+  return (
+    <dl className="facts">
+      {rows
+        .filter(([, value]) => value !== null && value !== undefined && value !== "")
+        .flatMap(([key, value]) => [<dt key={`${key}-k`}>{key}</dt>, <dd key={`${key}-v`}>{value}</dd>])}
+    </dl>
+  );
+}
+
+// Demo access code, kept in this browser. Rendered only when the server asks for one.
+export function AccessCode({ value, onChange }) {
+  return (
+    <input
+      className="access-code"
+      type="password"
+      placeholder="Demo access code"
+      aria-label="Demo access code"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    />
   );
 }

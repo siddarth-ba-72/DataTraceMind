@@ -1,0 +1,128 @@
+/* Scenario Lab. Builds on the shared design system in ../styles.css; only what
+   the lab alone needs is here. Its header bar marks it as a different tool
+   from the incident console. */
+
+.lab { min-height: 100vh; display: flex; flex-direction: column; }
+.lab-bar {
+  position: sticky; top: 0; z-index: 20; height: 56px;
+  display: flex; align-items: center; gap: 14px; padding: 0 28px;
+  background: var(--nav); color: var(--nav-text); border-bottom: 3px solid var(--warning);
+}
+.lab-bar .brand { padding: 0; }
+.lab-env {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 650; letter-spacing: 0.06em;
+  text-transform: uppercase; color: #1c1300; background: var(--warning); padding: 3px 9px; border-radius: 999px;
+}
+.lab-link {
+  display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--nav-border); background: var(--nav-raised); color: var(--nav-text-strong); font-weight: 600;
+}
+.lab-link:hover { text-decoration: none; border-color: var(--nav-text-muted); }
+.lab-bar .access-code { background: var(--nav-raised); border-color: var(--nav-border); color: var(--nav-text-strong); }
+
+.lab-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 16px; align-items: stretch; }
+.lab-row > * { min-width: 0; }
+@media (max-width: 520px) { .lab-row { grid-template-columns: minmax(0, 1fr); } .lab-bar { padding: 0 16px; } }
+
+/* --- The four steps of a run ------------------------------------------------ */
+
+.flow { list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden; }
+.flow-step { display: flex; gap: 12px; align-items: flex-start; padding: 13px 16px; border-left: 1px solid var(--border); position: relative; }
+.flow-step:first-child { border-left: 0; }
+.flow-number {
+  flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 650;
+  border: 1.5px solid var(--border-strong); color: var(--text-muted); background: var(--surface);
+}
+.flow-title { font-weight: 650; font-size: 13px; }
+.flow-caption { font-size: 12px; color: var(--text-muted); line-height: 1.45; margin-top: 1px; }
+.flow-todo .flow-title { color: var(--text-secondary); }
+.flow-done .flow-number { background: var(--good-wash); border-color: var(--good); color: var(--good-ink); }
+.flow-current { background: var(--accent-wash); box-shadow: inset 0 -2px 0 var(--accent); }
+.flow-current .flow-number { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+@media (max-width: 900px) {
+  .flow { grid-template-columns: minmax(0, 1fr); }
+  .flow-step { border-left: 0; border-top: 1px solid var(--border); }
+  .flow-step:first-child { border-top: 0; }
+}
+
+.headline {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; padding: 13px 18px;
+  background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--good);
+  border-radius: var(--radius); box-shadow: var(--shadow-sm);
+}
+.headline > div { flex: 1 1 420px; min-width: 0; }
+.headline-warning { border-left-color: var(--warning); }
+.headline-critical { border-left-color: var(--critical); }
+
+/* --- Source traffic --------------------------------------------------------- */
+
+.traffic-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.traffic-rate { margin-left: auto; }
+/* Fixed width, so the card's heading does not rewrap when the state or rate changes. */
+.traffic-state { display: flex; justify-content: flex-end; min-width: 228px; }
+.counters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin-top: 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.counter { padding: 10px 14px; border-left: 1px solid var(--border); }
+.counter:first-child { border-left: 0; }
+.counter-value { font-size: 20px; font-weight: 650; letter-spacing: -0.01em; line-height: 1.2; }
+.counter-label { font-size: 11.5px; color: var(--text-muted); }
+.traffic-caption { font-size: 12px; margin-top: 6px; }
+.explain { list-style: none; margin: 12px 0 14px; display: grid; gap: 4px; font-size: 12.5px; color: var(--text-secondary); }
+.explain li { padding-left: 14px; position: relative; }
+.explain li::before { content: ""; position: absolute; left: 2px; top: 0.62em; width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted); }
+.explain strong { color: var(--text); }
+.explain:last-child { margin-bottom: 0; }
+.env-feed { margin-top: 16px; }
+
+/* --- Scenario catalogue ----------------------------------------------------- */
+
+.catalog { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+@media (max-width: 960px) { .catalog { grid-template-columns: minmax(0, 1fr); } }
+.scenario-list { list-style: none; background: var(--surface-sunken); border-right: 1px solid var(--border); }
+@media (max-width: 960px) { .scenario-list { border-right: 0; border-bottom: 1px solid var(--border); } }
+.scenario-list li + li { border-top: 1px solid var(--border); }
+.scenario-row {
+  appearance: none; border: 0; background: none; width: 100%; text-align: left; cursor: pointer; font: inherit; color: inherit;
+  display: flex; align-items: center; gap: 12px; padding: 11px 14px;
+}
+.scenario-row:hover { background: var(--surface-hover); }
+.scenario-row.selected { background: var(--surface); box-shadow: inset 3px 0 0 var(--accent); }
+.scenario-row > .icon { color: var(--text-muted); }
+.scenario-row-id { flex: none; color: var(--text-secondary); }
+.scenario-row.selected .scenario-row-id { color: var(--accent); }
+.scenario-row-text { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.scenario-row-name { font-weight: 600; }
+.scenario-row-meta { font-size: 11.5px; color: var(--text-muted); }
+
+.scenario-detail { padding: 18px 22px 20px; min-width: 0; }
+.scenario-detail-head h2 { font-size: 17px; letter-spacing: -0.01em; margin: 8px 0 6px; }
+.scenario-detail-head p { color: var(--text-secondary); max-width: 80ch; }
+.scenario-facts {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px 20px; margin: 16px 0 4px; padding: 12px 14px;
+  background: var(--surface-sunken); border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.scenario-facts .eyebrow { margin-bottom: 4px; }
+.scenario-fact { font-weight: 600; }
+.briefs { margin: 4px 0 0; }
+.brief { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 4px 20px; padding: 12px 0; border-top: 1px solid var(--border); }
+.brief:first-child { border-top: 0; }
+.brief dt { font-weight: 600; color: var(--text-secondary); font-size: 12.5px; }
+.brief dd { margin: 0; max-width: 78ch; }
+@media (max-width: 700px) { .brief { grid-template-columns: minmax(0, 1fr); } }
+.bullets { list-style: none; display: grid; gap: 4px; }
+.bullets li { padding-left: 14px; position: relative; }
+.bullets li::before { content: ""; position: absolute; left: 2px; top: 0.62em; width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.scenario-action { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 14px; margin-top: 6px; padding-top: 16px; border-top: 1px solid var(--border); }
+.scenario-action .muted { flex: 1 1 260px; font-size: 12.5px; }
+
+/* --- Injection report ------------------------------------------------------- */
+
+.result-grid { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 5fr); gap: 8px 32px; }
+@media (max-width: 1040px) { .result-grid { grid-template-columns: minmax(0, 1fr); } }
+.result-grid > * { min-width: 0; }
+.result-grid h4:first-child { margin-top: 0; }
+.run-list, .check-list { list-style: none; display: grid; gap: 6px; }
+.run-list li { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 10px; align-items: baseline; font-size: 12.5px; }
+.run-error { display: block; color: var(--critical-ink); overflow-wrap: anywhere; }
+.check-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.result-note { margin-top: 8px; font-size: 12.5px; }

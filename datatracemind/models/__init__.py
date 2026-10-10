@@ -181,4 +181,6 @@ class ValidationResult(BaseModel):
     checks: list[dict[str, Any]] = Field(default_factory=list)
     regression: list[RegressionCase] = Field(default_factory=list)
     before_after: dict[str, Any] = Field(default_factory=dict)
+    # Outcome of loading the same rows a second time in staging.
+    replay: dict[str, Any] = Field(default_factory=dict)
     validated_at: datetime | None = None

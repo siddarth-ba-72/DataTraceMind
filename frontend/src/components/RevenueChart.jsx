@@ -6,9 +6,10 @@
 import { useMemo, useRef, useState } from "react";
 import { compactMoney, money, shortDate, signedMoney } from "../format.js";
 
-const WIDTH = 760;
-const HEIGHT = 250;
-const MARGIN = { top: 16, right: 20, bottom: 30, left: 62 };
+// Close to the size the chart is drawn at, so axis text keeps its type size.
+const WIDTH = 1040;
+const HEIGHT = 270;
+const MARGIN = { top: 16, right: 24, bottom: 30, left: 58 };
 const SERIES = [
   { key: "source_net", label: "Source-derived (contract)", className: "series-1" },
   { key: "analytics_net", label: "Analytics daily_revenue", className: "series-2" },
@@ -36,7 +37,7 @@ export default function RevenueChart({ daily, currency, tolerance = 0.01 }) {
   const y = (value) => MARGIN.top + innerHeight - (Math.max(value, 0) / top) * innerHeight;
   const path = (key) => rows.map((r, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(r[key]).toFixed(1)}`).join(" ");
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((share) => share * top);
-  const labelEvery = Math.ceil(rows.length / 7);
+  const labelEvery = Math.ceil(rows.length / 8);
   const differs = (row) => Math.abs(row.analytics_net - row.source_net) > tolerance;
   const mismatched = rows.filter(differs).length;
 
@@ -70,22 +71,24 @@ export default function RevenueChart({ daily, currency, tolerance = 0.01 }) {
 
       {showTable ? (
         <div className="table-scroll">
-          <table className="table numeric">
+          <table className="table table-inset numeric">
             <thead>
               <tr>
                 <th>Day</th>
-                <th>Source-derived</th>
-                <th>Analytics</th>
-                <th>Difference</th>
+                <th className="right">Source-derived</th>
+                <th className="right">Analytics</th>
+                <th className="right">Difference</th>
               </tr>
             </thead>
             <tbody>
               {[...rows].reverse().map((row) => (
                 <tr key={row.date}>
                   <td>{shortDate(row.date)}</td>
-                  <td>{money(row.source_net, currency)}</td>
-                  <td>{money(row.analytics_net, currency)}</td>
-                  <td>{differs(row) ? signedMoney(row.analytics_net - row.source_net, currency) : "matches"}</td>
+                  <td className="right">{money(row.source_net, currency)}</td>
+                  <td className="right">{money(row.analytics_net, currency)}</td>
+                  <td className="right">
+                    {differs(row) ? signedMoney(row.analytics_net - row.source_net, currency) : "matches"}
+                  </td>
                 </tr>
               ))}
             </tbody>

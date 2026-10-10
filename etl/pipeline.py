@@ -282,12 +282,16 @@ def run_once(
     spec_text: str | None = None,
     transform_version: int | None = None,
     full_refresh: bool = False,
+    replay: bool = False,
     trigger: str = "schedule",
 ) -> RunResult:
     """Run the pipeline once and record the run, whatever its outcome.
 
     By default it uses the active transformation version. Staging validation
-    passes `spec_text` (the patched file) and a staging `target_schema`.
+    passes `spec_text` (the patched file) and a staging `target_schema`. With
+    `replay` the run reads every source order again without emptying the
+    target first, which is what a retry of an already loaded batch does; an
+    idempotent load leaves the target unchanged.
     """
     with pipeline_lock():
         contract = load_revenue_contract()
@@ -315,7 +319,7 @@ def run_once(
             )
             step = "extract"
             snapshot = extract(
-                spec, contract, since=None if result.full_refresh else checkpoint["watermark"]
+                spec, contract, since=None if result.full_refresh or replay else checkpoint["watermark"]
             )
             step = "transform"
             transformed = transform_bundles(snapshot.bundles, spec)

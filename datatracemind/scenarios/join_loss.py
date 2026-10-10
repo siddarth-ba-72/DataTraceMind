@@ -14,6 +14,20 @@ class JoinDropsOrders(FaultScenario):
     )
     failure_type = "Silent record loss"
     priority = "P0"
+    layer = "Transformation"
+    etl_reports = "SUCCESS"
+    injection = (
+        "Deploys a new transformation version in which fact_orders.payment_join is inner instead of left. "
+        "An order with no payment row no longer produces a fact row."
+    )
+    impact = (
+        "Order counts and conversion metrics are wrong while revenue stays right, so a revenue check alone "
+        "would never catch it."
+    )
+    resolution_note = (
+        "The agent should list the missing order IDs, show that none has a payment, and propose restoring "
+        "payment_join: left for your approval."
+    )
 
     def inject(self, context: InjectionContext) -> None:
         context.deploy_transform(
@@ -42,5 +56,6 @@ class JoinDropsOrders(FaultScenario):
                 "order_count_reconciliation",
                 "declared_status_consistent",
             ],
+            "expected_outcome": "awaiting_approval",
             "expected_repair": {"fact_orders.payment_join": "left"},
         }

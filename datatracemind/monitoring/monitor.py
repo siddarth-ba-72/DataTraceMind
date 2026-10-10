@@ -25,15 +25,17 @@ logger = logging.getLogger(__name__)
 # A net-revenue difference at or above this share of source revenue is critical.
 CRITICAL_REVENUE_SHARE = 0.01
 
-# First failed check that matches decides the incident type.
+# First failed check that matches decides the incident type. Duplicate keys
+# come before the revenue check: duplicated rows inflate revenue, never the
+# other way round, so they are the more specific finding.
 _TYPE_BY_CHECK = (
     ("pipeline_run_succeeded", "pipeline_failure"),
+    ("unique_business_keys", "duplicate_records"),
     ("net_revenue_reconciliation", "revenue_mismatch"),
     ("fact_orders_completeness", "record_loss"),
     ("fact_payments_completeness", "record_loss"),
     ("fact_refunds_completeness", "record_loss"),
     ("order_count_reconciliation", "record_loss"),
-    ("unique_business_keys", "duplicate_records"),
     ("payment_revenue_eligibility", "rule_violation"),
     ("refund_subtraction_eligibility", "rule_violation"),
     ("source_schema_contract", "schema_drift"),
@@ -97,7 +99,19 @@ def assess(incident_type: str, result: RunResult) -> tuple[str, str]:
         return "high", f"{missing} source rows are missing from the analytics fact tables; {declared}."
     if incident_type == "duplicate_records":
         extra = sum(t["extra_rows"] for t in by_name["unique_business_keys"].observed.values())
-        return "high", f"{extra} duplicate fact rows share a business key; {declared}."
+        reconciliation = by_name.get("net_revenue_reconciliation")
+        gaps = _revenue_gaps(reconciliation) if reconciliation else []
+        if not gaps:
+            return "high", f"{extra} duplicate fact rows share a business key; {declared}."
+        severity = "critical" if gaps[0][2] >= CRITICAL_REVENUE_SHARE else "high"
+        parts = [
+            f"{abs(difference):,.2f} {currency} {'higher' if difference > 0 else 'lower'} ({share:.1%})"
+            for currency, difference, share in gaps
+        ]
+        return severity, (
+            f"{extra} duplicate fact rows share a business key; analytics net revenue is "
+            f"{' and '.join(parts)} than the source-derived value; {declared}."
+        )
     if incident_type == "schema_drift":
         return "medium", f"The source schema no longer matches its contract; {declared}."
     failed = ", ".join(c.name for c in result.failed_checks)

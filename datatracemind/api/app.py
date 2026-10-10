@@ -11,6 +11,7 @@ import hmac
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Literal
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -26,6 +27,7 @@ from datatracemind.orchestration import supervisor
 from datatracemind.repair import approval, executor, patch_store, validation
 from datatracemind.workers import EtlWorker
 from etl import run_log, transform_store
+from simulator.generator import MAX_BATCH, TRAFFIC_PROFILES
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +60,18 @@ class RejectionDecision(ApprovalDecision):
 
 class ApplyRequest(BaseModel):
     patch_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class TrafficStart(BaseModel):
+    profile: Literal[TRAFFIC_PROFILES] | None = None
+
+
+class TrafficRate(BaseModel):
+    profile: Literal[TRAFFIC_PROFILES]
+
+
+class TrafficBatch(BaseModel):
+    size: int = Field(default=25, ge=1, le=MAX_BATCH)
 
 
 @asynccontextmanager
@@ -109,14 +123,35 @@ def demo_reset() -> dict:
     return demo.reset()
 
 
+@router.get("/demo/traffic")
+def traffic_status() -> dict:
+    return demo.traffic.status()
+
+
+@guarded.post("/demo/traffic/rate")
+def traffic_rate(request: TrafficRate) -> dict:
+    """Choose the rate without starting or stopping the stream."""
+    demo.traffic.set_profile(request.profile)
+    return {"traffic": demo.traffic.status()}
+
+
 @guarded.post("/demo/traffic/start")
-def traffic_start() -> dict:
-    return {"started": demo.traffic.start(), "traffic_running": True}
+def traffic_start(request: TrafficStart | None = None) -> dict:
+    """Start the live stream, optionally at a given rate."""
+    started = demo.traffic.start(request.profile if request else None)
+    return {"started": started, "traffic_running": True, "traffic": demo.traffic.status()}
 
 
 @guarded.post("/demo/traffic/stop")
 def traffic_stop() -> dict:
-    return {"stopped": demo.traffic.stop(), "traffic_running": False}
+    return {"stopped": demo.traffic.stop(), "traffic_running": False, "traffic": demo.traffic.status()}
+
+
+@guarded.post("/demo/traffic/batch")
+def traffic_batch(request: TrafficBatch | None = None) -> dict:
+    """Write a fixed number of transactions to the source at once."""
+    written = demo.traffic.send_batch(request.size if request else TrafficBatch().size)
+    return {"written": written, "traffic": demo.traffic.status()}
 
 
 @router.get("/transactions/live")

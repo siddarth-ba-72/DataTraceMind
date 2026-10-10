@@ -17,7 +17,8 @@ evidence are in [hackathon.md](hackathon.md).
 1. A simulator writes orders, payments, and refunds to PostgreSQL (`oltp`).
 2. A Python ETL loads the analytics schema, driven by a versioned
    transformation file.
-3. The scenario lab injects one known fault.
+3. The Scenario Lab, a separate page for whoever operates the demo, injects
+   one known fault.
 4. Deterministic quality checks fail and the monitor opens an incident. No
    model decides that something is wrong.
 5. A supervisor runs the agent roles: a source-data investigator and a
@@ -25,7 +26,7 @@ evidence are in [hackathon.md](hackathon.md).
    and a repair agent. Each model-backed role is one Codex turn with its own
    tool allow-list and output schema.
 6. The repair is run in a staging schema against regression fixtures and every
-   quality check.
+   quality check, and the load is replayed to prove a retry changes nothing.
 7. A person reviews the evidence, diff, and staging result, then approves or
    rejects. Approval is bound to the patch hash.
 8. On approval the patch is applied, the pipeline reruns, and the incident
@@ -46,25 +47,55 @@ python3.13 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/uvicorn datatracemind.api.app:app --port 8000
 ```
 
-Open <http://127.0.0.1:8000>. The first start seeds a deterministic baseline.
+The first start seeds a deterministic baseline. There are two pages:
 
-Demo path: **Scenario lab → Inject fault (DS-01) → Investigate → review the
-repair → Approve and apply**. **Reset demo** returns to the clean baseline.
-An investigation takes about a minute and four Codex turns.
+| Page | URL | What it is for |
+|---|---|---|
+| Incident console | <http://127.0.0.1:8000/> | The product: data trust, incidents, evidence, repair review and approval, audit log |
+| Scenario Lab | <http://127.0.0.1:8000/lab/> | Operating the demo environment: live traffic, fault injection, reset |
 
-For frontend development, `npm run dev` in `frontend/` serves the dashboard on
-port 5173 and proxies `/api` to port 8000.
+The console never injects anything and is never told what was injected; the
+lab never investigates. Each links to the other.
+
+Demo path: in the **Scenario Lab**, pick a scenario, read its briefing, and
+press **Inject fault**. Follow **Open INC-0001** to the console, then
+**Investigate → review the repair → Approve and apply**. Back in the lab,
+**Reset to baseline** returns to the clean state. An investigation takes about
+a minute and four Codex turns.
+
+Live traffic is optional. **Start traffic** in the lab keeps simulated
+customers writing orders, payments, and refunds to the source at a chosen rate
+(light, steady, or busy); **Send 25 now** writes one batch instead. Every
+scenario also reproduces on the seeded baseline with traffic paused, and a
+reset pauses it so each run starts from the same data.
+
+For frontend development, `npm run dev` in `frontend/` serves both pages on
+port 5173 (`/` and `/lab/`) and proxies `/api` to port 8000.
 
 ## Scenarios
 
-| ID | Fault | What the checks see |
-|---|---|---|
-| DS-01 | A transformation change stops subtracting completed refunds | ETL green; net revenue overstated by exactly the succeeded refunds |
-| DS-02 | A source migration renames `orders.total_amount` | ETL fails; analytics goes stale |
-| DS-03 | The order fact is built with an inner join to payments | ETL green; orders with no payment are missing |
+| ID | Fault | What the checks see | Expected ending |
+|---|---|---|---|
+| DS-01 | A transformation change stops subtracting completed refunds | ETL green; net revenue overstated by exactly the succeeded refunds | Repair |
+| DS-02 | A source migration renames `orders.total_amount` | ETL fails; analytics goes stale | Repair |
+| DS-03 | The order fact is built with an inner join to payments | ETL green; orders with no payment are missing | Repair |
+| DS-04 | The load becomes append-only, then a retry rereads a loaded batch | The deploy run is clean; the retry duplicates business keys and inflates revenue | Repair |
+| DS-06 | The source starts writing refunds with a new status, `CHARGEBACK` | ETL green with rejected rows; those refunds are missing; revenue still reconciles | Escalation |
+| DS-07 | Reporting days are assigned in UTC instead of the business timezone | ETL green; currency totals reconcile, individual days do not | Repair |
+| DS-09 | `orders.total_amount` becomes nullable and some paid orders lose their amount | ETL green with rejected rows; those orders and their payments are missing | Escalation |
+| DS-16 | Every refund subtracts the whole order amount | ETL green; net revenue understated, only on partial refunds | Repair |
+| DS-17 | Failed payments count as revenue | ETL green; revenue overstated by exactly the failed payments | Repair |
 
-Each scenario carries an answer key (`ground_truth`) that only the evaluator
-reads. Nothing an agent can call, and no prompt, contains it.
+IDs follow the scenario table in the product brief; DS-16 and DS-17 are
+additions to it. DS-04 takes two pipeline runs to show, which the lab performs
+and reports. DS-06 and DS-09 have no correct transformation change: the
+workflow is expected to say so and hand the incident to a person.
+
+Each scenario carries a briefing for the lab's operator (what it changes,
+what you will see, which checks should fail, how it should end) and an answer
+key (`ground_truth`) that only the evaluator reads. Neither reaches an agent:
+nothing an agent can call imports the scenario package (a test enforces
+this), no prompt contains it, and an incident never names its scenario.
 
 ## Safety model
 
@@ -83,6 +114,9 @@ reads. Nothing an agent can call, and no prompt, contains it.
 - **Deterministic checks decide.** Staging validation, approval checks, and
   post-fix verification are code. A model's statement that something passed
   proves nothing.
+- **A repair must survive a retry.** Staging loads the same rows a second
+  time and reruns every check, so a patch that leaves the load non-idempotent
+  is rejected even though a fresh staging load of it looks clean.
 - **Approval is bound to the patch.** The executor re-reads the proposal, the
   approval, and the validation result and refuses unless all three name the
   same hash and the patch still applies to the deployed version.
@@ -95,15 +129,16 @@ reads. Nothing an agent can call, and no prompt, contains it.
 ## Tests and evaluation
 
 ```sh
-.venv/bin/python -m pytest                           # 100 tests, about a minute
+.venv/bin/python -m pytest                           # 130 tests, about a minute and a half
 .venv/bin/python -m datatracemind.evaluation DS-01   # one real run, scored
 ```
 
 The tests use a separate `datatracemind_test` database and spend no model
 usage: the workflow is driven by a scripted stand-in provider whose tool calls
-are real. They cover the blocked paths as well as the happy one: applying
-without approval, a changed patch after approval, a patch that failed
-validation, rejection, and a failed post-fix verification.
+are real. They cover every scenario from injection to its expected ending,
+and the blocked paths as well as the happy one: applying without approval, a
+changed patch after approval, a patch that failed validation, rejection, and
+a failed post-fix verification.
 
 The evaluator resets the demo, injects a scenario, runs a real investigation,
 and scores it against the answer key. Results are written to
@@ -119,7 +154,7 @@ infra/postgres/   schema for source, analytics target, and application state
 datatracemind/
   api/            FastAPI routes
   monitoring/     detection and dashboard read models
-  scenarios/      fault scenarios and their answer keys
+  scenarios/      fault scenarios, their briefings, and their answer keys
   tools/          read-only investigation tools and the MCP server
   llm/            provider contract and the Codex adapter
   agents/         role prompts and the role runner
@@ -127,7 +162,7 @@ datatracemind/
   repair/         proposals, staging validation, approval, executor
   observability/  neatlogs tracing
   evaluation.py   scenario evaluator
-frontend/         React dashboard
+frontend/         React: the incident console (/) and the Scenario Lab (/lab/)
 tests/
 ```
 
@@ -157,9 +192,14 @@ tests/
 
 ## Known limitations
 
-- Only DS-01 has been run with the real model so far, up to the approval
-  step. DS-02 and DS-03, and the apply-and-verify step, pass end to end with
-  the scripted provider.
+- Only DS-01 has been run with the real model so far: three investigations,
+  one of them taken through approval, apply, and verification. Every other
+  scenario passes end to end with the scripted provider only, so how the real
+  model diagnoses DS-02 through DS-17, and whether it escalates DS-06 and
+  DS-09 as intended, is not yet known.
+- With DS-04 active and live traffic running, the duplication keeps growing:
+  each run rereads the last few seconds and appends them again. That is the
+  fault behaving as it would in production, not a second fault.
 - Cost figures are estimates at API list prices; the model runs on a
   flat-rate ChatGPT plan.
 - There is no container image for the API yet, and the stack has not been

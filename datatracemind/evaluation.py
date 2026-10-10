@@ -57,11 +57,14 @@ def _seconds(start: datetime | None, end: datetime | None) -> float | None:
     return round((end - start).total_seconds(), 1) if start and end else None
 
 
-def score(scenario_id: str, injection: dict, incident: dict) -> dict:
+def score(scenario_id: str, injection: dict, incident: dict, outcome: str) -> dict:
     """Compare what the workflow produced with the scenario's answer key."""
     truth = SCENARIOS[scenario_id].ground_truth()
     failed = set(injection["run"]["failed_checks"])
-    root_cause = incident["state"].get("selected_root_cause") or {}
+    # An escalated run confirms no cause; its leading hypothesis is scored instead.
+    hypotheses = incident["state"].get("hypotheses") or [{}]
+    root_cause = incident["state"].get("selected_root_cause") or hypotheses[0]
+    categories = {truth["root_cause_category"], *truth.get("also_accepted_categories", [])}
     proposal = incident["proposal"] or {}
     validation = proposal.get("validation_result") or {}
 
@@ -83,10 +86,15 @@ def score(scenario_id: str, injection: dict, incident: dict) -> dict:
     return {
         "detected": injection["incident_id"] is not None and set(truth["expected_failed_checks"]) <= failed,
         "silent_failure": injection["run"]["status"] == "SUCCESS",
+        "outcome": {
+            "expected": truth["expected_outcome"],
+            "actual": outcome,
+            "correct": outcome == truth["expected_outcome"],
+        },
         "root_cause_category": {
             "expected": truth["root_cause_category"],
             "actual": root_cause.get("category"),
-            "correct": root_cause.get("category") == truth["root_cause_category"],
+            "correct": root_cause.get("category") in categories,
         },
         "implicated_component": {
             "expected_field": truth["implicated_field"],
@@ -102,7 +110,12 @@ def score(scenario_id: str, injection: dict, incident: dict) -> dict:
         "repair": {
             "proposed": bool(proposal),
             "fields": repair_fields,
-            "correct": bool(repair_fields) and all(f["correct"] for f in repair_fields.values()),
+            # For a scenario that should escalate, the correct repair is none.
+            "correct": (
+                bool(repair_fields) and all(f["correct"] for f in repair_fields.values())
+                if truth["expected_repair"]
+                else not proposal
+            ),
             "diff": proposal.get("diff"),
         },
         "staging_validation_passed": bool(validation.get("passed")),
@@ -136,7 +149,7 @@ def run(scenario_id: str, approve_as: str | None) -> dict:
         "outcome": outcome,
         "investigation_seconds": investigation_s,
         "seconds_detected_to_diagnosed": _seconds(incident["detected_at"], _event_time(incident, "diagnosed")),
-        "score": score(scenario_id, injection, incident),
+        "score": score(scenario_id, injection, incident, outcome),
         "run": db.to_jsonable(incident["investigation_runs"][-1]),
         "role_events": [
             {"agent": e["agent"], "status": e["status"], "summary": e["summary"]}

@@ -140,7 +140,12 @@ CREATE TABLE IF NOT EXISTS dtm.lab_state (
     scenario_id            TEXT,
     injected_at            TIMESTAMPTZ,
     baseline_metrics       JSONB,
-    post_injection_metrics JSONB
+    post_injection_metrics JSONB,
+    -- The pipeline runs of the injection and the incident they opened.
+    injection_report       JSONB
 );
+
+-- A database created before the column existed gets it on the next start.
+ALTER TABLE dtm.lab_state ADD COLUMN IF NOT EXISTS injection_report JSONB;
 
 INSERT INTO dtm.lab_state (id) VALUES (1) ON CONFLICT (id) DO NOTHING;

@@ -31,7 +31,7 @@ def test_healthy_baseline_is_visible(client):
 
 def test_inject_opens_an_incident_and_an_alert(client):
     assert [s["scenario_id"] for s in client.get("/api/scenarios").json()["scenarios"]] == [
-        "DS-01", "DS-02", "DS-03",
+        "DS-01", "DS-02", "DS-03", "DS-04", "DS-06", "DS-07", "DS-09", "DS-16", "DS-17",
     ]  # fmt: skip
     report = client.post("/api/scenarios/DS-01/inject").json()
     incident_id = report["incident_id"]
@@ -66,13 +66,50 @@ def test_traffic_can_be_started_and_stopped(client):
     assert client.get("/api/health").json()["traffic_running"] is False
 
 
+def test_traffic_rate_can_be_chosen_and_changed_while_running(client):
+    idle = client.get("/api/demo/traffic").json()
+    assert idle["running"] is False and idle["profile"] == "steady" and idle["total"] == 0
+    assert [p["name"] for p in idle["profiles"]] == ["light", "steady", "busy"]
+    started = client.post("/api/demo/traffic/start", json={"profile": "busy"}).json()
+    assert started["started"] is True and started["traffic"]["profile"] == "busy"
+    # A second start does not launch a second stream; it only changes the rate.
+    changed = client.post("/api/demo/traffic/start", json={"profile": "light"}).json()
+    assert changed["started"] is False and changed["traffic"]["running"] is True
+    assert changed["traffic"]["profile"] == "light"
+    assert changed["traffic"]["per_minute"] < started["traffic"]["per_minute"]
+    assert client.post("/api/demo/traffic/start", json={"profile": "flood"}).status_code == 422
+    stopped = client.post("/api/demo/traffic/stop").json()["traffic"]
+    assert stopped["running"] is False
+    # The rate can also be chosen while paused, without starting anything.
+    paused = client.post("/api/demo/traffic/rate", json={"profile": "busy"}).json()["traffic"]
+    assert paused["profile"] == "busy" and paused["running"] is False and paused["total"] == stopped["total"]
+    assert client.post("/api/demo/traffic/rate", json={"profile": "flood"}).status_code == 422
+    assert client.post("/api/demo/traffic/rate", json={"profile": "steady"}).status_code == 200
+
+
+def test_a_batch_writes_exactly_that_many_transactions_and_is_counted(client):
+    orders = client.get("/api/transactions/live?limit=1").json()["totals"]["orders"]
+    sent = client.post("/api/demo/traffic/batch", json={"size": 30}).json()
+    assert sum(sent["written"].values()) == 30
+    assert sent["traffic"]["total"] == 30 and sent["traffic"]["running"] is False
+    assert sent["traffic"]["counts"]["orders_placed"] == sent["written"]["order_placed"]
+    assert client.get("/api/transactions/live?limit=1").json()["totals"]["orders"] == orders + sent["written"]["order_placed"]
+    assert client.post("/api/demo/traffic/batch", json={"size": 0}).status_code == 422
+    assert client.post("/api/demo/traffic/batch", json={"size": 5000}).status_code == 422
+    # A reset returns the counters to zero along with the data.
+    assert client.post("/api/demo/reset").status_code == 200
+    assert client.get("/api/demo/traffic").json()["total"] == 0
+
+
 def test_demo_access_code_guards_mutating_routes(client, monkeypatch):
     monkeypatch.setenv("DTM_DEMO_ACCESS_CODE", "let-me-in")
     get_settings.cache_clear()
     try:
         assert client.post("/api/scenarios/DS-01/inject").status_code == 401
         assert client.post("/api/demo/reset", headers={"X-Demo-Access-Code": "wrong"}).status_code == 401
+        assert client.post("/api/demo/traffic/batch", json={"size": 5}).status_code == 401
         assert client.get("/api/metrics/summary").status_code == 200
+        assert client.get("/api/demo/traffic").status_code == 200
         allowed = client.post("/api/scenarios/DS-01/inject", headers={"X-Demo-Access-Code": "let-me-in"})
         assert allowed.status_code == 200
     finally:

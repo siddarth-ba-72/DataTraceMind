@@ -254,24 +254,63 @@ def seed_baseline(conn: psycopg.Connection, seed: int) -> None:
         simulator.place_order(conn, at=history_start + timedelta(seconds=offset), settle_refunds=True)
 
 
+# Live traffic rates: seconds between transactions, as (shortest, longest).
+# "steady" uses the configured interval; the others are fixed.
+TRAFFIC_PROFILES = ("light", "steady", "busy")
+DEFAULT_PROFILE = "steady"
+MAX_BATCH = 200
+
+
+def traffic_interval(profile: str) -> tuple[float, float]:
+    if profile == "light":
+        return 2.0, 5.0
+    if profile == "busy":
+        return 0.1, 0.4
+    settings = get_settings()
+    return settings.traffic_min_interval_s, settings.traffic_max_interval_s
+
+
 class TrafficGenerator:
-    """Background thread that adds one transaction every 0.5-2 seconds."""
+    """Background thread that keeps adding transactions to the source.
+
+    One transaction at a time, at the pace of the selected profile. It also
+    counts what it wrote, by action, so the lab can show what the stream did.
+    """
 
     def __init__(self) -> None:
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._lock = threading.Lock()
-        self.actions = 0
+        self.profile = DEFAULT_PROFILE
+        self.started_at: datetime | None = None
+        self.last_action_at: datetime | None = None
+        self.counts: dict[str, int] = {}
+        self.failed_ticks = 0
+        self._batches = 0
 
     @property
     def running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
-    def start(self) -> bool:
+    @property
+    def actions(self) -> int:
+        return sum(self.counts.values())
+
+    def set_profile(self, profile: str) -> None:
+        """Choose the rate. A running stream adopts it on its next transaction."""
+        if profile not in TRAFFIC_PROFILES:
+            raise ValueError(f"unknown traffic profile {profile!r}; choose one of {', '.join(TRAFFIC_PROFILES)}")
+        self.profile = profile
+
+    def start(self, profile: str | None = None) -> bool:
+        """Start the stream, optionally at a given rate. False if it was already running."""
+        if profile is not None:
+            self.set_profile(profile)
         with self._lock:
             if self.running:
                 return False
             self._stop.clear()
+            self.started_at = datetime.now(BUSINESS_TZ)
             self._thread = threading.Thread(target=self._run, name="traffic", daemon=True)
             self._thread.start()
             return True
@@ -283,19 +322,74 @@ class TrafficGenerator:
             self._stop.set()
             self._thread.join(timeout=10)
             self._thread = None
+            self.started_at = None
             return True
 
+    def clear_counts(self) -> None:
+        self.counts = {}
+        self.failed_ticks = 0
+        self.last_action_at = None
+        self._batches = 0
+
+    def _record(self, action: str) -> None:
+        self.counts[action] = self.counts.get(action, 0) + 1
+        self.last_action_at = datetime.now(BUSINESS_TZ)
+
+    def send_batch(self, size: int) -> dict[str, int]:
+        """Write `size` transactions now, in one go. Returns how many of each action."""
+        if not 1 <= size <= MAX_BATCH:
+            raise ValueError(f"a batch is between 1 and {MAX_BATCH} transactions")
+        with self._lock:
+            self._batches += 1
+            # Its own seeded stream per batch, apart from the baseline and the live stream.
+            simulator = Simulator(get_settings().demo_seed + 1000 + self._batches)
+        written: dict[str, int] = {}
+        with connect() as conn:
+            for _ in range(size):
+                action = simulator.tick(conn)
+                written[action] = written.get(action, 0) + 1
+        for action, count in written.items():
+            self.counts[action] = self.counts.get(action, 0) + count
+        self.last_action_at = datetime.now(BUSINESS_TZ)
+        return written
+
+    def status(self) -> dict:
+        shortest, longest = traffic_interval(self.profile)
+        return {
+            "running": self.running,
+            "profile": self.profile,
+            "profiles": [
+                {
+                    "name": name,
+                    "interval_seconds": list(traffic_interval(name)),
+                    "per_minute": round(120 / sum(traffic_interval(name))),
+                }
+                for name in TRAFFIC_PROFILES
+            ],
+            "per_minute": round(120 / (shortest + longest)),
+            "started_at": self.started_at,
+            "last_action_at": self.last_action_at,
+            "counts": {
+                "orders_placed": self.counts.get("order_placed", 0),
+                "refunds_requested": self.counts.get("refund_requested", 0),
+                "refunds_settled": self.counts.get("refund_settled", 0),
+            },
+            "total": self.actions,
+            "failed_ticks": self.failed_ticks,
+            "max_batch": MAX_BATCH,
+        }
+
     def _run(self) -> None:
-        settings = get_settings()
         # Offset from the baseline seed so live traffic does not replay it.
-        simulator = Simulator(settings.demo_seed + 1)
+        simulator = Simulator(get_settings().demo_seed + 1)
         while not self._stop.is_set():
             try:
                 with connect() as conn:
-                    simulator.tick(conn)
-                self.actions += 1
+                    action = simulator.tick(conn)
+                self._record(action)
             except psycopg.Error:
                 # The schema can be mid-reset or deliberately drifted; keep trying.
+                self.failed_ticks += 1
                 logger.warning("traffic tick failed", exc_info=True)
-            interval = simulator.rng.uniform(settings.traffic_min_interval_s, settings.traffic_max_interval_s)
-            self._stop.wait(interval)
+            # Read each time, so a rate change takes effect on the next transaction.
+            self._stop.wait(simulator.rng.uniform(*traffic_interval(self.profile)))

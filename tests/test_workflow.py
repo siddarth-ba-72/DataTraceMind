@@ -9,11 +9,13 @@ from datatracemind.llm.base import ProviderError, RequiredToolMissing, UsageLimi
 from datatracemind.monitoring.summary import metrics_summary
 from datatracemind.orchestration import routing, supervisor
 from datatracemind.orchestration.supervisor import InvestigationRefused, run_investigation
-from etl import contract
+from etl import contract, transform_store
 from tests.support import (
+    CATEGORY,
     FIX,
     WRONG_FIX,
     ScriptedProvider,
+    active_transform,
     diagnosis,
     incident,
     raises,
@@ -231,17 +233,56 @@ def test_an_escalated_incident_can_be_investigated_again(ds01):
     assert len(incident(ds01)["investigation_runs"]) == 2
 
 
-@pytest.mark.parametrize(
-    "scenario_id, category",
-    [("DS-02", "schema_drift"), ("DS-03", "join_loss")],
-)
-def test_other_scenarios_use_their_own_plan_and_validate(baseline, scenario_id, category):
+@pytest.mark.parametrize("scenario_id", sorted(set(FIX) - {"DS-01"}))
+def test_other_scenarios_use_their_own_plan_and_validate(baseline, scenario_id):
     incident_id = demo.inject(scenario_id)["incident_id"]
     provider = ScriptedProvider(
-        {"root_cause_analyst": [diagnosis(category)], "repair_agent": [repair(FIX[scenario_id])]}
+        {"root_cause_analyst": [diagnosis(CATEGORY[scenario_id])], "repair_agent": [repair(FIX[scenario_id])]}
     )
     assert run_investigation(incident_id, provider=provider) == "awaiting_approval"
     plan = routing.plan_for(incident(incident_id)["incident_type"])
     source_call = next(c for c in provider.calls if c.role == "source_investigator")
     assert source_call.required_tools == plan.source_required
     assert incident(incident_id)["proposal"]["validation_result"]["passed"] is True
+
+
+def test_ds04_is_investigated_as_duplicate_records(baseline):
+    incident_id = demo.inject("DS-04")["incident_id"]
+    provider = ScriptedProvider(
+        {"root_cause_analyst": [diagnosis("duplicate_load")], "repair_agent": [repair(FIX["DS-04"])]}
+    )
+    assert run_investigation(incident_id, provider=provider) == "awaiting_approval"
+    source_call = next(c for c in provider.calls if c.role == "source_investigator")
+    assert source_call.required_tools == ("find_duplicate_business_keys",)
+    duplicates = next(e for e in incident(incident_id)["evidence"] if e["query_or_tool"] == "find_duplicate_business_keys")
+    assert duplicates["result_summary"]["duplicated_keys"] > 0
+
+
+def test_a_new_source_status_escalates_as_a_business_rule_question(baseline):
+    """DS-06: no contract says how a chargeback counts, so nobody proposes a patch."""
+    incident_id = demo.inject("DS-06")["incident_id"]
+    question = "The net_revenue contract does not define refund_status CHARGEBACK."
+    provider = ScriptedProvider(
+        {"root_cause_analyst": [diagnosis("schema_drift", confirmed=False, confidence=0.8, ambiguity=question)]}
+    )
+    assert run_investigation(incident_id, provider=provider) == "escalated"
+    found = incident(incident_id)
+    assert found["status"] == "escalated" and found["proposal"] is None
+    assert question in found["state"]["errors"][-1]["reason"]
+    assert provider.turns("repair_agent") == 0
+    assert metrics_summary()["trust"] == "under_investigation"
+
+
+def test_a_defect_in_the_source_escalates_when_the_repair_agent_declines(baseline):
+    """DS-09: the cause is confirmed, and the right fix is not a transformation change."""
+    incident_id = demo.inject("DS-09")["incident_id"]
+    provider = ScriptedProvider(
+        {"root_cause_analyst": [diagnosis("source_data_defect")], "repair_agent": [repair(can_repair=False)]}
+    )
+    assert run_investigation(incident_id, provider=provider) == "escalated"
+    found = incident(incident_id)
+    assert statuses(incident_id) == ["detected", "investigating", "diagnosed", "escalated"]
+    assert found["state"]["selected_root_cause"]["category"] == "source_data_defect"
+    assert found["proposal"] is None
+    assert "proposes no automatic fix" in found["state"]["errors"][-1]["reason"]
+    assert active_transform() == transform_store.baseline_content()
