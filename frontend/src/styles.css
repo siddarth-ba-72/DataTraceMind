@@ -207,6 +207,8 @@ summary > .tag:last-child { margin-left: 8px; margin-right: 0; }
 .table td { padding: 7px 10px 7px 0; border-bottom: 1px solid var(--border); vertical-align: top; }
 .table tr:last-child td { border-bottom: 0; }
 .table.numeric td, .table.numeric th { font-variant-numeric: tabular-nums; }
+/* Identifiers in a table cell stay on one line; the cell scrolls with the table instead. */
+.table td > code { overflow-wrap: normal; white-space: nowrap; }
 .table .right { text-align: right; padding-right: 18px; }
 .feed-totals { margin-bottom: 6px; font-size: 12.5px; }
 .audit-details { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 12.5px; overflow-wrap: anywhere; }
