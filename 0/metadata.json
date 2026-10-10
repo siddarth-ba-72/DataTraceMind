@@ -1,0 +1,82 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4JEMHSZXEYRFTBE69X146GZ",
+  "session_id": "375a924c-08ec-4e72-9a72-6eb52ac76d00",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-10T08:24:58.388413Z",
+  "branch": "build/ds01-vertical-slice",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "datatracemind/cost_export.py",
+    "frontend/src/App.jsx",
+    "frontend/src/api.js",
+    "frontend/src/components/Audit.jsx",
+    "frontend/src/components/Incident.jsx",
+    "frontend/src/components/Overview.jsx",
+    "frontend/src/components/RepairReview.jsx",
+    "frontend/src/components/RevenueChart.jsx",
+    "frontend/src/components/ScenarioLab.jsx",
+    "frontend/src/components/common.jsx",
+    "frontend/src/format.js",
+    "frontend/src/main.jsx"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "turn_id": "c53d27bb476c",
+  "checkpoint_transcript_start": 577,
+  "transcript_lines_at_start": 577,
+  "compact_transcript_start": 61,
+  "token_usage": {
+    "input_tokens": 46,
+    "cache_creation_tokens": 539759,
+    "cache_read_tokens": 9349309,
+    "output_tokens": 54189,
+    "api_call_count": 21
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01R3UPydRGxZqt29SUBkKqCn",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "dataviz"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "c53d27bb476c",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 582,
+        "end": 583,
+        "entry_ids": [
+          "b751f5ad-a5da-4f55-a558-bc9175d2f710"
+        ],
+        "tool_use_id": "toolu_01R3UPydRGxZqt29SUBkKqCn"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01R3UPydRGxZqt29SUBkKqCn"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: dataviz",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "initial_attribution": {
+    "calculated_at": "2026-10-10T08:24:58.274586Z",
+    "agent_lines": 1630,
+    "agent_removed": 0,
+    "human_added": 2235,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 3865,
+    "total_lines_changed": 3879,
+    "agent_percentage": 42.021139468935296,
+    "metric_version": 2
+  }
+}

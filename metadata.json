@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4JEMHSZXEYRFTBE69X146GZ",
+  "strategy": "manual-commit",
+  "branch": "build/ds01-vertical-slice",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "datatracemind/cost_export.py",
+    "frontend/src/App.jsx",
+    "frontend/src/api.js",
+    "frontend/src/components/Audit.jsx",
+    "frontend/src/components/Incident.jsx",
+    "frontend/src/components/Overview.jsx",
+    "frontend/src/components/RepairReview.jsx",
+    "frontend/src/components/RevenueChart.jsx",
+    "frontend/src/components/ScenarioLab.jsx",
+    "frontend/src/components/common.jsx",
+    "frontend/src/format.js",
+    "frontend/src/main.jsx"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 46,
+    "cache_creation_tokens": 539759,
+    "cache_read_tokens": 9349309,
+    "output_tokens": 54189,
+    "api_call_count": 21
+  }
+}
