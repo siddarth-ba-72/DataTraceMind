@@ -1,0 +1,58 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4K3KMWSGWJDC6PV3176BXDM",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "README.md",
+    "datatracemind/api/app.py",
+    "datatracemind/demo.py",
+    "datatracemind/evaluation.py",
+    "datatracemind/models/__init__.py",
+    "datatracemind/monitoring/monitor.py",
+    "datatracemind/repair/validation.py",
+    "datatracemind/scenarios/__init__.py",
+    "datatracemind/scenarios/base.py",
+    "datatracemind/scenarios/join_loss.py",
+    "datatracemind/scenarios/refund_logic.py",
+    "datatracemind/scenarios/schema_drift.py",
+    "etl/pipeline.py",
+    "frontend/index.html",
+    "frontend/src/App.jsx",
+    "frontend/src/components/Audit.jsx",
+    "frontend/src/components/Incident.jsx",
+    "frontend/src/components/Overview.jsx",
+    "frontend/src/components/RepairReview.jsx",
+    "frontend/src/components/RevenueChart.jsx",
+    "frontend/src/components/ScenarioLab.jsx",
+    "frontend/src/components/common.jsx",
+    "frontend/src/format.js",
+    "frontend/src/styles.css",
+    "frontend/vite.config.js",
+    "hackathon.md",
+    "infra/postgres/dtm.sql",
+    "simulator/generator.py",
+    "tests/support.py",
+    "tests/test_api.py",
+    "tests/test_repair.py",
+    "tests/test_scenarios.py",
+    "tests/test_workflow.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 18,
+    "cache_creation_tokens": 80149,
+    "cache_read_tokens": 444853,
+    "output_tokens": 6497,
+    "api_call_count": 8
+  }
+}

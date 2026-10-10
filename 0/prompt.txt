@@ -1,0 +1,11 @@
+what database are you using for OLAP
+
+---
+
+<task-notification>
+<task-id>bd883pyjw</task-id>
+<tool-use-id>toolu_01Vty2V4cEaWSnc1SejG5s1e</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-siddarth-ba-72-projects-DataTraceMind/375a924c-08ec-4e72-9a72-6eb52ac76d00/tasks/bd883pyjw.output</output-file>
+<status>failed</status>
+<summary>Background command "Restart the DataTraceMind API and dashboard on localhost:8000 with the latest code" failed with exit code 144</summary>
+</task-notification>
