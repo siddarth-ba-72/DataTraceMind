@@ -90,3 +90,14 @@ def test_readonly_role_cannot_write_or_read_application_state(baseline):
         conn.execute("SET default_transaction_read_only = off")
         conn.execute("COMMIT")
         conn.execute("DELETE FROM oltp.refunds")
+
+
+def test_pipeline_lock_is_reentrant_and_excludes_other_sessions(baseline):
+    key = pipeline._ADVISORY_LOCK_KEY
+    probe = "SELECT pg_try_advisory_lock(%s) AS acquired"
+    with pipeline.pipeline_lock(), pipeline.pipeline_lock():
+        # Another database session (as another process would be) cannot take it.
+        assert db.fetch_one(probe, (key,))["acquired"] is False
+        assert pipeline.run_once(trigger="test").status == "SUCCESS"  # run_once re-enters the lock
+    with db.connect() as conn:
+        assert conn.execute(probe, (key,)).fetchone()["acquired"] is True

@@ -16,7 +16,7 @@ from datatracemind.config import TRANSFORM_FILE
 from datatracemind.observability import span
 from datatracemind.repair import patch_store
 from etl import pipeline, transform_store
-from etl.pipeline import PIPELINE_LOCK
+from etl.pipeline import pipeline_lock
 from etl.transforms.spec import SpecError, parse_spec
 
 logger = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ def _refusal(conn, incident: dict, proposal: dict, patch_hash: str) -> str | Non
 
 def apply_approved_patch(incident_id: str, patch_hash: str) -> dict:
     """Deploy the approved patch, then run post-fix verification."""
-    with PIPELINE_LOCK:
+    with pipeline_lock():
         with span("apply_approved_patch", "GUARDRAIL", input={"incident_id": incident_id, "patch_hash": patch_hash}) as guard:
             with db.connect() as conn:
                 incident = store.get_incident_row(conn, incident_id, for_update=True)
@@ -127,7 +127,7 @@ def _roll_back(incident_id: str, proposal: dict) -> int:
 
 def run_post_fix_verification(incident_id: str) -> dict:
     """Rerun the pipeline with the applied patch and resolve only if every check passes."""
-    with PIPELINE_LOCK:
+    with pipeline_lock():
         with db.connect() as conn:
             incident = store.get_incident_row(conn, incident_id, for_update=True)
             proposal = patch_store.get_proposal(conn, incident_id)

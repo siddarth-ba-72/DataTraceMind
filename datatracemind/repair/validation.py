@@ -21,7 +21,7 @@ from datatracemind.repair.regression import run_regression_suite
 from etl import pipeline, run_log, transform_store
 from etl.contract import load_revenue_contract
 from etl.metrics import reconcile, source_revenue, target_revenue
-from etl.pipeline import PIPELINE_LOCK
+from etl.pipeline import pipeline_lock
 from etl.transforms.spec import SpecError, parse_spec
 
 logger = logging.getLogger(__name__)
@@ -94,7 +94,7 @@ def _evaluate(proposal: dict) -> ValidationResult:
 
 def validate_proposal(incident_id: str) -> ValidationResult:
     """Validate the incident's current proposal in staging and record the outcome."""
-    with PIPELINE_LOCK:
+    with pipeline_lock():
         with db.connect() as conn:
             proposal = patch_store.get_proposal(conn, incident_id, for_update=True)
             if proposal["status"] != "proposed":

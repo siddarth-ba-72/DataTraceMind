@@ -30,6 +30,8 @@ import argparse
 import logging
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -52,9 +54,37 @@ from etl.transforms.spec import TransformSpec, parse_spec
 
 logger = logging.getLogger(__name__)
 
-# Serialises everything that reads or rewrites pipeline state in this process:
-# scheduled runs, staging validation, fault injection, repair, and reset.
-PIPELINE_LOCK = threading.RLock()
+_THREAD_LOCK = threading.RLock()
+_ADVISORY_LOCK_KEY = 0x44544D01
+_lock_holder: ExitStack | None = None
+_lock_depth = 0
+
+
+@contextmanager
+def pipeline_lock() -> Iterator[None]:
+    """Serialise everything that reads or rewrites pipeline state.
+
+    Scheduled runs, staging validation, fault injection, repair, and reset all
+    take it. It is re-entrant, and it holds across processes as well as
+    threads (a PostgreSQL advisory lock on its own connection), so the API's
+    worker and a script such as the evaluator can share one database.
+    """
+    global _lock_holder, _lock_depth
+    with _THREAD_LOCK:
+        if _lock_depth == 0:
+            holder = ExitStack()
+            conn = holder.enter_context(connect(autocommit=True))
+            conn.execute("SELECT pg_advisory_lock(%s)", (_ADVISORY_LOCK_KEY,))
+            _lock_holder = holder
+        _lock_depth += 1
+        try:
+            yield
+        finally:
+            _lock_depth -= 1
+            if _lock_depth == 0 and _lock_holder is not None:
+                # Closing the session releases the advisory lock.
+                _lock_holder.close()
+                _lock_holder = None
 
 WATERMARK_OVERLAP = timedelta(seconds=5)
 REJECT_SAMPLE = 20
@@ -259,7 +289,7 @@ def run_once(
     By default it uses the active transformation version. Staging validation
     passes `spec_text` (the patched file) and a staging `target_schema`.
     """
-    with PIPELINE_LOCK:
+    with pipeline_lock():
         contract = load_revenue_contract()
         if spec_text is None:
             active = transform_store.get_active()

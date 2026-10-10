@@ -17,7 +17,7 @@ from datatracemind.monitoring import monitor
 from datatracemind.monitoring.summary import metrics_summary
 from datatracemind.scenarios import SCENARIOS, InjectionContext
 from etl import pipeline, transform_store
-from etl.pipeline import PIPELINE_LOCK, RunResult
+from etl.pipeline import RunResult, pipeline_lock
 from simulator.generator import TrafficGenerator, seed_baseline
 
 logger = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ def reset() -> dict:
     Traffic is left stopped so that the baseline is the same on every reset.
     """
     traffic.stop()
-    with PIPELINE_LOCK:
+    with pipeline_lock():
         db.drop_all()
         db.ensure_schema()
         with db.connect() as conn:
@@ -70,7 +70,7 @@ def reset() -> dict:
 def inject(scenario_id: str) -> dict:
     """Inject one scenario's fault, run the pipeline, and let the monitor react."""
     scenario = SCENARIOS[scenario_id]
-    with PIPELINE_LOCK:
+    with pipeline_lock():
         with db.connect() as conn:
             state = conn.execute("SELECT scenario_id FROM dtm.lab_state WHERE id = 1 FOR UPDATE").fetchone()
             if state["scenario_id"] is not None:
