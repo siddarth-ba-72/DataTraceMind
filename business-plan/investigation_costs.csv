@@ -1,2 +1,3 @@
 run_date,incident_id,scenario_id,workflow_version,model,outcome,role_turns,tool_calls,input_tokens,cached_input_tokens,output_tokens,est_cost_usd,duration_s
 2026-10-10,INC-0001,DS-01,v1,gpt-6-sol,awaiting_approval,4,11,219595,112384,3874,0.2756,70.09
+2026-10-10,INC-0001,DS-01,v2,gpt-6-sol,awaiting_approval,4,10,230636,132608,3951,0.2621,75.12

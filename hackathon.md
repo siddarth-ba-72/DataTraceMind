@@ -8,15 +8,15 @@ where the evidence is. Newest session first. Times are IST.
 | Required evidence | Status | Where |
 |---|---|---|
 | Code: public repo, commits dated in the hackathon | Commits made from 13:10 on 10 Oct on branch `build/ds01-vertical-slice`; **not pushed yet** | `git log` |
-| neatlogs: traces from the project | One full DS-01 investigation exported; **not yet opened in the dashboard by a person** | Trace ID `d931c993a7f032e18558ce61ea460904` |
+| neatlogs: traces from the project | Two full DS-01 investigations exported; **not yet opened in the dashboard by a person** | Trace IDs `d931c993a7f032e18558ce61ea460904` (v1), `b4b2e5507d8a139ae2711464076cb11b` (v2) |
 | Entire: checkpoint link and ID | Every commit on the branch carries an `Entire-Checkpoint` trailer; links work after the branch is pushed | Table under Session 1 |
-| The agent improved: before/after pair | Baseline ("before") run recorded; **"after" run not done yet** | `evaluation/results/20261010-133338-DS-01-v1.json` |
+| The agent improved: before/after pair | Two runs recorded (v1, v2). **The difference is small and within what one run each can show; not yet a convincing improvement** | "Before/after" under Session 1; `evaluation/results/` |
 | Recovery from failure | Covered by tests with a scripted provider; **no traced real run yet** | `tests/test_workflow.py` |
 | cfo.ai business plan | Not started. Measured cost per investigation is exported and ready to upload | `business-plan/investigation_costs.csv` |
 | Building in public: `#neatHack` posts | None yet | – |
 | Demo video | Not recorded | – |
 
-## Session 1 — 10 October 2026, 12:50–14:10
+## Session 1 — 10 October 2026, 12:50–14:25
 
 Coding agent: Claude Code (Opus 5.5), inside an Entire-enabled session.
 
@@ -45,7 +45,7 @@ Phases 1 to 4 of the product brief, and a first pass at the Phase 5 dashboard.
 
 ### What was tested
 
-- `pytest`: **99 passed** in 65 s. Uses a separate test database and a
+- `pytest`: **100 passed** in about 65 s. Uses a separate test database and a
   scripted stand-in provider, so it spends no model usage. Covers DS-01,
   DS-02, and DS-03 end to end, and the blocked paths: apply without approval,
   a patch changed after approval, a patch that failed validation, rejection,
@@ -96,6 +96,10 @@ Phases 1 to 4 of the product brief, and a first pass at the Phase 5 dashboard.
 - `mcp_servers.dtm.env_vars` forwards named environment variables to the tool
   server (verified: the server used the database named in the forwarded
   variable). This avoids putting a connection string on the command line.
+- The pipeline lock was per process, so the API's ETL worker and a script
+  such as the evaluator could interleave loads on one database. It now also
+  takes a PostgreSQL advisory lock. Found by reasoning before the second
+  evaluation run, not by a failure; a test covers it.
 
 ### Weaknesses seen in the baseline run (candidates for the before/after change)
 
@@ -107,6 +111,52 @@ Phases 1 to 4 of the product brief, and a first pass at the Phase 5 dashboard.
    few that carry the argument, and widened the implicated component to
    include `etl/pipeline.py`.
 3. The analyst reported 100% confidence.
+
+### Before/after: workflow v1 → v2
+
+One change, taken from weakness 1 above: the pipeline investigator's prompt
+now says to read pipeline source code only when the transformation file and
+its history do not explain the failed checks. Same scenario, same reset and
+seed, same model and effort. One run per version.
+
+| Measure | v1 (before) | v2 (after) |
+|---|---|---|
+| Root-cause category correct | yes | yes |
+| Repair correct, staging validation passed | yes | yes |
+| Apply before approval refused | yes | yes |
+| Role turns | 4 | 4 |
+| Tool calls (failed / retries) | 11 (0 / 0) | 10 (0 / 0) |
+| Input tokens, total | 219,595 | 230,636 |
+| Input tokens, uncached | 107,211 | 98,028 |
+| Output tokens | 3,874 | 3,951 |
+| Estimated cost, API list prices | $0.2756 | $0.2621 |
+| Duration | 70.1 s | 75.1 s |
+| Evidence items cited as support | 10 | 9 |
+| neatlogs trace ID | `d931c993a7f032e18558ce61ea460904` | `b4b2e5507d8a139ae2711464076cb11b` |
+
+**Reading it honestly:** correctness and the safety checks did not regress,
+and the pipeline investigator dropped one read it did not need (the
+interpreter source). But it still read `etl/pipeline.py`, total input tokens
+and duration went up, and the estimated cost fell by under 5%. With one run
+per version that is within run-to-run variation. This pair does not show a
+clear improvement and should not be presented as one.
+
+Why the change underdelivered: the investigator reads `etl/pipeline.py` to
+explain the failed `declared_status_consistent` check (why the run said
+SUCCESS), which the transformation file cannot explain, so the new
+instruction did not apply to it. Most of the token count is Codex's fixed
+overhead per model round trip, so the number of round trips matters more than
+which file is read.
+
+Better candidates for the next change:
+
+1. Present `declared_status_consistent` to the roles as context ("the run
+   reported SUCCESS although checks failed") rather than as a failed check to
+   explain.
+2. Give each investigator one composite tool that returns its standard
+   starting evidence in a single call, cutting round trips.
+
+Run each version more than once before comparing.
 
 ### Commits and Entire checkpoints
 
@@ -139,8 +189,8 @@ its ID exists only after the commit is made (`git log` shows it).
 
 1. Human: push the branch; open the trace in neatlogs; approve INC-0001 in the
    dashboard to exercise apply and verify with a real patch.
-2. Change one thing from the weaknesses above, bump the workflow version to
-   `v2`, rerun DS-01, and record the before/after numbers.
+2. Make one of the two changes listed under "Before/after", bump the workflow
+   version to `v3`, and compare over several runs per version.
 3. Capture a traced recovery run.
 4. Run DS-02 and DS-03 with the real model.
 5. Container image and deployment; cfo.ai plan; demo video.

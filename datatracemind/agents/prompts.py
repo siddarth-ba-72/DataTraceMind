@@ -59,6 +59,8 @@ Establish what the pipeline is doing with the rows involved in the failed checks
 2. Read the recent run logs: status, row counts, errors, the transformation version of each run, failed checks.
 3. Identify the exact line or lines of the transformation file, or the pipeline step, that govern those rows. \
 Quote them verbatim.
+4. The transformation file and its history come first. Read pipeline source code (a path ending in .py) only if \
+they do not explain the failed checks.
 Do not profile source data; another investigator is doing that in parallel.
 You must call these tools at least once: {required}. Use at most {max_calls} tool calls in total.
 

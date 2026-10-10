@@ -95,7 +95,7 @@ reads. Nothing an agent can call, and no prompt, contains it.
 ## Tests and evaluation
 
 ```sh
-.venv/bin/python -m pytest                           # 99 tests, about a minute
+.venv/bin/python -m pytest                           # 100 tests, about a minute
 .venv/bin/python -m datatracemind.evaluation DS-01   # one real run, scored
 ```
 
@@ -157,8 +157,9 @@ tests/
 
 ## Known limitations
 
-- Only DS-01 has been run end to end with the real model so far. DS-02 and
-  DS-03 pass end to end with the scripted provider.
+- Only DS-01 has been run with the real model so far, up to the approval
+  step. DS-02 and DS-03, and the apply-and-verify step, pass end to end with
+  the scripted provider.
 - Cost figures are estimates at API list prices; the model runs on a
   flat-rate ChatGPT plan.
 - There is no container image for the API yet, and the stack has not been

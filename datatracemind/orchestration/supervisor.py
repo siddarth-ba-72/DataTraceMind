@@ -38,7 +38,12 @@ logger = logging.getLogger(__name__)
 
 # Label on every trace and run record. Bump it whenever a prompt, a tool, or a
 # routing rule changes, so that before/after runs can be told apart.
-WORKFLOW_VERSION = "v1"
+#   v1  first complete workflow.
+#   v2  pipeline investigator reads pipeline source code only when the
+#       transformation file and its history do not explain the failed checks
+#       (in the v1 baseline run that turn read two source files it did not
+#       need and was the most expensive: 6 tool calls, 86,868 input tokens).
+WORKFLOW_VERSION = "v2"
 
 _active: dict[str, threading.Thread] = {}
 _active_lock = threading.Lock()
