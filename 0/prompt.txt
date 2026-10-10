@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>b22sun0j1</task-id>
+<tool-use-id>toolu_01J4TsHD5peiukgGU9L7QNFT</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-siddarth-ba-72-projects-DataTraceMind/375a924c-08ec-4e72-9a72-6eb52ac76d00/tasks/b22sun0j1.output</output-file>
+<status>failed</status>
+<summary>Background command "Start the DataTraceMind API and dashboard on localhost:8000" failed with exit code 144</summary>
+</task-notification>
