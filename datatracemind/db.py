@@ -47,9 +47,23 @@ def to_jsonable(value: Any) -> Any:
 set_json_dumps(lambda obj: json.dumps(to_jsonable(obj)))
 
 
+_writes_forbidden = False
+
+
+def forbid_write_connections() -> None:
+    """Make this process unable to open a read-write connection.
+
+    Called by the tool server, which runs code on behalf of a model.
+    """
+    global _writes_forbidden
+    _writes_forbidden = True
+
+
 @contextmanager
 def connect(*, readonly: bool = False, autocommit: bool = False) -> Iterator[psycopg.Connection]:
     """Open a connection that commits on success and rolls back on error."""
+    if _writes_forbidden and not readonly:
+        raise PermissionError("this process may only open read-only database connections")
     settings = get_settings()
     if readonly:
         url = settings.readonly_database_url
