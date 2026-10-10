@@ -1,0 +1,120 @@
+{
+  "scenario_id": "DS-01",
+  "evaluated_at": "2026-10-10T08:29:13.843048+00:00",
+  "workflow_version": "v2",
+  "model": "gpt-6-sol",
+  "incident_id": "INC-0001",
+  "outcome": "awaiting_approval",
+  "investigation_seconds": 75.1,
+  "seconds_detected_to_diagnosed": 53.7,
+  "score": {
+    "detected": true,
+    "silent_failure": true,
+    "root_cause_category": {
+      "expected": "refund_logic",
+      "actual": "refund_logic",
+      "correct": true
+    },
+    "implicated_component": {
+      "expected_field": "revenue.refund_statuses",
+      "actual": "etl/transforms/order_revenue.yaml: revenue.refund_statuses; etl/pipeline.py: run_once status recording before quality checks",
+      "correct": true
+    },
+    "evidence_coverage": {
+      "cited_evidence": [
+        "E-001",
+        "E-002",
+        "E-003",
+        "E-004",
+        "E-005",
+        "E-006",
+        "E-007",
+        "E-008",
+        "E-010"
+      ],
+      "cited_tools": [
+        "compare_source_target_metrics",
+        "get_etl_code",
+        "get_etl_run_logs",
+        "get_metric_contract",
+        "run_readonly_sql"
+      ],
+      "groups_covered": 3,
+      "groups_expected": 3
+    },
+    "repair": {
+      "proposed": true,
+      "fields": {
+        "revenue.refund_statuses": {
+          "expected": [
+            "SUCCEEDED"
+          ],
+          "actual": [
+            "SUCCEEDED"
+          ],
+          "correct": true
+        }
+      },
+      "correct": true,
+      "diff": "--- a/etl/transforms/order_revenue.yaml\n+++ b/etl/transforms/order_revenue.yaml\n@@ -23,7 +23,7 @@\n   # Payments with one of these statuses count as gross revenue.\n   payment_statuses: [CAPTURED]\n   # Refunds with one of these statuses are subtracted from revenue.\n-  refund_statuses: [COMPLETED]\n+  refund_statuses: [SUCCEEDED]\n   # Amount subtracted per qualifying refund: refund_amount or order_total.\n   refund_amount_basis: refund_amount\n \n"
+    },
+    "staging_validation_passed": true,
+    "regression_cases_passed": 10,
+    "regression_cases_total": 10
+  },
+  "run": {
+    "run_id": 1,
+    "incident_id": "INC-0001",
+    "scenario_id": "DS-01",
+    "workflow_version": "v2",
+    "model": "gpt-6-sol",
+    "trace_id": "b4b2e5507d8a139ae2711464076cb11b",
+    "status": "awaiting_approval",
+    "started_at": "2026-10-10T08:27:58.713306+00:00",
+    "finished_at": "2026-10-10T08:29:13.832782+00:00",
+    "duration_s": 75.12,
+    "role_turns": 4,
+    "tool_calls": 10,
+    "failed_tool_calls": 0,
+    "retries": 0,
+    "input_tokens": 230636,
+    "cached_input_tokens": 132608,
+    "output_tokens": 3951,
+    "est_cost_usd": 0.2621
+  },
+  "role_events": [
+    {
+      "agent": "contract_agent",
+      "status": "completed",
+      "summary": "Retrieved 1 approved contract(s)"
+    },
+    {
+      "agent": "source_investigator",
+      "status": "completed",
+      "summary": "Profile the source data and compare it with analytics \u2014 done in 19s"
+    },
+    {
+      "agent": "pipeline_investigator",
+      "status": "completed",
+      "summary": "Inspect the transformation file, its history, and the run logs \u2014 done in 38s"
+    },
+    {
+      "agent": "root_cause_analyst",
+      "status": "completed",
+      "summary": "Rank hypotheses against 10 evidence items \u2014 done in 15s"
+    },
+    {
+      "agent": "repair_agent",
+      "status": "completed",
+      "summary": "Propose a minimal repair for the confirmed root cause \u2014 done in 21s"
+    }
+  ],
+  "failed_tool_calls": [],
+  "escalation": null,
+  "approval_enforced": {
+    "apply_before_approval_refused": true,
+    "reason": "the proposal is validated, not approved"
+  },
+  "traced": true,
+  "trace_delivery_problems": {}
+}

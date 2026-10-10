@@ -8,26 +8,35 @@ failed export degrades to "not traced" instead of raising.
 Usage:
     init_tracing()                    # once, at process start, before any
                                       # LLM client or agent framework import
-    client = wrap_llm_client(Provider())
     with investigation_run(incident_id, scenario_id=..., version=...) as trace_id:
-        ...                           # @neatlogs.span roles and tools nest here
+        with span("source_investigator", "AGENT", input=task) as agent:
+            with span("codex.exec", "LLM") as turn:      # nests under the role
+                turn.record_usage(...)
+            agent.set_output(report)
     shutdown_tracing()                # once, at process exit
 """
 
 from __future__ import annotations
 
+import contextvars
+import json
 import logging
 import os
-from collections.abc import Iterator
-from contextlib import contextmanager
-from typing import Any
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack, contextmanager
+from typing import Any, TypeVar
 
 import neatlogs
 from dotenv import load_dotenv
+from opentelemetry.trace import Status, StatusCode
 
 logger = logging.getLogger(__name__)
 
 WORKFLOW_NAME = "datatracemind"
+# Spans carry summaries, not payloads: longer values are cut to this length.
+MAX_ATTRIBUTE_CHARS = 6000
+
+T = TypeVar("T")
 
 _initialized = False
 
@@ -64,6 +73,25 @@ def shutdown_tracing() -> None:
     neatlogs.flush()
     neatlogs.shutdown()
     _initialized = False
+    lost = delivery_problems()
+    if lost:
+        logger.warning("neatlogs did not deliver everything: %s", lost)
+    else:
+        logger.info("neatlogs: all spans exported")
+
+
+def delivery_problems() -> dict[str, int]:
+    """Non-zero loss counters of the trace exporter (empty when nothing was lost)."""
+    try:
+        counters = neatlogs.get_delivery_diagnostics()
+    except Exception:
+        logger.debug("could not read neatlogs delivery diagnostics", exc_info=True)
+        return {}
+    return {
+        name: value
+        for name, value in counters.items()
+        if isinstance(value, int) and not isinstance(value, bool) and value and name.endswith(("_drops", "_failures"))
+    }
 
 
 def wrap_llm_client(client: Any, **workflow_attributes: Any) -> Any:
@@ -103,6 +131,7 @@ def investigation_run(
     *,
     scenario_id: str | None = None,
     version: str | None = None,
+    phase: str = "investigation",
 ) -> Iterator[str | None]:
     """Root span for one investigation run; yields its trace ID.
 
@@ -110,9 +139,13 @@ def investigation_run(
     the neatlogs session ID, so every run for an incident (first attempt,
     re-investigation after a failed validation, post-fix verification) is
     grouped together. `version` labels the workflow/prompt revision, which is
-    what makes a before/after pair of runs comparable.
+    what makes a before/after pair of runs comparable. `phase` tells the
+    investigation trace apart from the later approval-and-apply trace.
     """
-    attributes = {"incident_id": incident_id}
+    if not _initialized:
+        yield None
+        return
+    attributes = {"incident_id": incident_id, "phase": phase}
     if scenario_id is not None:
         attributes["scenario_id"] = scenario_id
     if version is not None:
@@ -126,3 +159,133 @@ def investigation_run(
         **attributes,
     ):
         yield current_trace_id()
+
+
+def _attribute(value: Any) -> str | bool | int | float:
+    """Coerce a value into something a span attribute can hold."""
+    if isinstance(value, (bool, int, float)):
+        return value
+    text = value if isinstance(value, str) else json.dumps(value, default=str)
+    if len(text) > MAX_ATTRIBUTE_CHARS:
+        text = text[:MAX_ATTRIBUTE_CHARS] + f"... [{len(text) - MAX_ATTRIBUTE_CHARS} more characters]"
+    return text
+
+
+class SpanHandle:
+    """What a caller gets from `span()`. Every method is safe when tracing is off."""
+
+    def __init__(self, otel_span: Any = None) -> None:
+        self._span = otel_span
+        self.failed = False
+
+    def set(self, **attributes: Any) -> None:
+        if self._span is None:
+            return
+        try:
+            for key, value in attributes.items():
+                if value is not None:
+                    self._span.set_attribute(key.replace("__", "."), _attribute(value))
+        except Exception:
+            logger.debug("could not set span attributes", exc_info=True)
+
+    def set_output(self, value: Any) -> None:
+        self.set(**{"output.value": value})
+
+    def fail(self, message: str, exc: BaseException | None = None) -> None:
+        """Mark the span as an error without raising."""
+        self.failed = True
+        if self._span is None:
+            return
+        try:
+            if exc is not None:
+                self._span.record_exception(exc)
+            self._span.set_status(Status(StatusCode.ERROR, message[:500]))
+        except Exception:
+            logger.debug("could not mark span as failed", exc_info=True)
+
+    def _succeed(self) -> None:
+        if self._span is not None and not self.failed:
+            try:
+                self._span.set_status(Status(StatusCode.OK))
+            except Exception:
+                logger.debug("could not mark span as ok", exc_info=True)
+
+    def record_usage(
+        self,
+        *,
+        provider: str,
+        model: str,
+        input_tokens: int,
+        cached_input_tokens: int,
+        output_tokens: int,
+        reasoning_tokens: int,
+        cost_usd: float,
+    ) -> None:
+        """Token usage and estimated cost of one model turn."""
+        total = input_tokens + output_tokens
+        self.set(
+            **{
+                "neatlogs.llm.provider": provider,
+                "neatlogs.llm.model_name": model,
+                "neatlogs.llm.token_count.prompt": input_tokens,
+                "neatlogs.llm.token_count.completion": output_tokens,
+                "neatlogs.llm.token_count.total": total,
+                "neatlogs.llm.token_count.cache_read": cached_input_tokens,
+                "neatlogs.llm.token_count.reasoning": reasoning_tokens,
+                "neatlogs.llm.cost_usd": cost_usd,
+                "llm.provider": provider,
+                "llm.model_name": model,
+                "llm.token_count.prompt": input_tokens,
+                "llm.token_count.completion": output_tokens,
+                "llm.token_count.total": total,
+                "llm.token_count.prompt_details.cache_read": cached_input_tokens,
+                "llm.token_count.completion_details.reasoning": reasoning_tokens,
+            }
+        )
+
+
+@contextmanager
+def span(name: str, kind: str, *, input: Any = None, **attributes: Any) -> Iterator[SpanHandle]:
+    """Open a span under the current run: AGENT, LLM, MCP_TOOL, TOOL, GUARDRAIL, or CHAIN.
+
+    An exception raised inside is recorded on the span with status ERROR and
+    re-raised, so a failed step and its retry show up as two spans. A step
+    that fails without raising calls `handle.fail(...)`. Attribute names may
+    use `__` where the real name has a dot.
+    """
+    if not _initialized:
+        yield SpanHandle()
+        return
+    values = {key.replace("__", "."): _attribute(v) for key, v in attributes.items() if v is not None}
+    if input is not None:
+        values["input.value"] = _attribute(input)
+    stack = ExitStack()
+    try:
+        otel_span = stack.enter_context(neatlogs.trace(name, kind=kind, **values))
+    except Exception:
+        logger.warning("could not open %s span %r; continuing untraced", kind, name, exc_info=True)
+        yield SpanHandle()
+        return
+    with stack:
+        handle = SpanHandle(otel_span)
+        try:
+            yield handle
+        except Exception as exc:
+            handle.fail(str(exc), exc)
+            raise
+        else:
+            handle._succeed()
+
+
+def in_current_trace(fn: Callable[..., T]) -> Callable[..., T]:
+    """Bind `fn` to the calling thread's trace context.
+
+    Roles that run concurrently execute on worker threads, which start with an
+    empty context; without this their spans would become separate traces.
+    """
+    context = contextvars.copy_context()
+
+    def bound(*args: Any, **kwargs: Any) -> T:
+        return context.copy().run(fn, *args, **kwargs)
+
+    return bound
