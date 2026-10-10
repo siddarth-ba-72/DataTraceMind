@@ -69,6 +69,9 @@ PRICES_PER_MILLION = {
 
 AVAILABILITY_TTL_S = 60.0
 STDERR_TAIL_CHARS = 2000
+# Optional debugging aid: a directory that receives each turn's raw event
+# stream. The events contain tool results, so keep it out of the repository.
+EVENT_LOG_ENV = "DTM_CODEX_EVENT_LOG_DIR"
 
 
 def estimate_cost_usd(model: str, usage: TokenUsage) -> float:
@@ -113,6 +116,22 @@ def _tool_result(item: dict) -> Any:
             except (json.JSONDecodeError, TypeError):
                 return block.get("text")
     return None
+
+
+def _tool_error(item: dict) -> str:
+    """Why a tool call failed.
+
+    Codex fills `error.message` when it could not make the call (for example
+    approval refused). When the tool itself reports an error, `error` is null
+    and the message is the text of the result.
+    """
+    message = (item.get("error") or {}).get("message")
+    if message:
+        return message
+    for block in (item.get("result") or {}).get("content") or []:
+        if block.get("type") == "text" and block.get("text"):
+            return block["text"]
+    return f"tool call ended with status {item.get('status')}"
 
 
 def _classify_failure(message: str) -> type[LLMError]:
@@ -245,8 +264,10 @@ class CodexProvider:
 
             watchdog = threading.Timer(call.timeout_s, kill)
             watchdog.start()
+            raw_events: list[str] = []
             try:
                 for line in process.stdout:
+                    raw_events.append(line)
                     self._handle_event(line, state, tool_calls, usage, open_tools)
                 process.wait()
             finally:
@@ -257,6 +278,7 @@ class CodexProvider:
                     handle.fail("the turn ended before this tool call completed")
                     if stack is not None:
                         stack.close()
+                self._dump_events(call.role, raw_events, stderr_tail)
 
         duration = time.monotonic() - started
         cost = estimate_cost_usd(MODEL, usage)
@@ -316,6 +338,23 @@ class CodexProvider:
         )
 
     @staticmethod
+    def _dump_events(role: str, events: list[str], stderr_lines: list[str]) -> None:
+        directory = os.environ.get(EVENT_LOG_ENV)
+        if not directory:
+            return
+        try:
+            target = Path(directory)
+            target.mkdir(parents=True, exist_ok=True)
+            stamp = time.strftime("%Y%m%d-%H%M%S")
+            (target / f"{stamp}-{role}-{os.getpid()}-{threading.get_ident()}.jsonl").write_text("".join(events))
+            if stderr_lines:
+                (target / f"{stamp}-{role}-{os.getpid()}-{threading.get_ident()}.stderr").write_text(
+                    "".join(stderr_lines)
+                )
+        except OSError:
+            logger.warning("could not write the Codex event log", exc_info=True)
+
+    @staticmethod
     def _tool_span(item: dict):
         """Span for one MCP tool call reported by Codex."""
         name = item.get("tool", "unknown")
@@ -370,15 +409,14 @@ class CodexProvider:
             name = item.get("tool", "unknown")
             key = item.get("id") or name
             stack, handle, began = open_tools.pop(key, (None, SpanHandle(), time.monotonic()))
-            error = (item.get("error") or {}).get("message") if item.get("error") else None
-            ok = item.get("status") == "completed" and error is None
+            ok = item.get("status") == "completed" and not item.get("error")
             result = _tool_result(item) if ok else None
             record = ToolCallRecord(
                 tool=name,
                 arguments=item.get("arguments") or {},
                 result=result,
                 status="completed" if ok else "failed",
-                error=None if ok else (error or f"tool call ended with status {item.get('status')}"),
+                error=None if ok else _tool_error(item),
                 duration_s=round(time.monotonic() - began, 3),
             )
             tool_calls.append(record)

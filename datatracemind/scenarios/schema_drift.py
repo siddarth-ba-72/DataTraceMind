@@ -29,6 +29,8 @@ class SchemaDrift(FaultScenario):
         return {
             "root_cause_category": "schema_drift",
             "implicated_field": "source.orders.amount_column",
+            # One tool from each group should be behind the cited evidence.
+            "key_evidence_tools": [["get_etl_code", "get_etl_run_logs"], ["get_source_schema", "profile_column"]],
             "expected_failed_checks": ["pipeline_run_succeeded", "source_schema_contract"],
             "expected_repair": {"source.orders.amount_column": "order_total"},
         }

@@ -35,6 +35,8 @@ class JoinDropsOrders(FaultScenario):
         return {
             "root_cause_category": "join_loss",
             "implicated_field": "fact_orders.payment_join",
+            # One tool from each group should be behind the cited evidence.
+            "key_evidence_tools": [["get_etl_code"], ["find_missing_source_ids", "run_readonly_sql"], ["get_data_contract"]],
             "expected_failed_checks": [
                 "fact_orders_completeness",
                 "order_count_reconciliation",

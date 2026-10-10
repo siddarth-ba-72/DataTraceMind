@@ -73,6 +73,25 @@ def shutdown_tracing() -> None:
     neatlogs.flush()
     neatlogs.shutdown()
     _initialized = False
+    lost = delivery_problems()
+    if lost:
+        logger.warning("neatlogs did not deliver everything: %s", lost)
+    else:
+        logger.info("neatlogs: all spans exported")
+
+
+def delivery_problems() -> dict[str, int]:
+    """Non-zero loss counters of the trace exporter (empty when nothing was lost)."""
+    try:
+        counters = neatlogs.get_delivery_diagnostics()
+    except Exception:
+        logger.debug("could not read neatlogs delivery diagnostics", exc_info=True)
+        return {}
+    return {
+        name: value
+        for name, value in counters.items()
+        if isinstance(value, int) and not isinstance(value, bool) and value and name.endswith(("_drops", "_failures"))
+    }
 
 
 def wrap_llm_client(client: Any, **workflow_attributes: Any) -> Any:

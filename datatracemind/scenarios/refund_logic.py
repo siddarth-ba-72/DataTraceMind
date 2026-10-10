@@ -37,6 +37,8 @@ class RefundLogicOmitted(FaultScenario):
         return {
             "root_cause_category": "refund_logic",
             "implicated_field": "revenue.refund_statuses",
+            # One tool from each group should be behind the cited evidence.
+            "key_evidence_tools": [["get_etl_code"], ["compare_source_target_metrics", "run_readonly_sql"], ["get_metric_contract"]],
             "expected_failed_checks": [
                 "net_revenue_reconciliation",
                 "refund_subtraction_eligibility",

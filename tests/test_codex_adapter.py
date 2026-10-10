@@ -52,7 +52,14 @@ if mode == "limit":
     emit({"type": "error", "message": "You've hit your usage limit. Try again in 3 hours."})
     sys.exit(1)
 emit({"type": "item.completed", "item": {"id": "item_0", "type": "agent_message", "text": "I'll query the refunds."}})
-if mode in ("ok", "bad_json", "tool_failed"):
+if mode == "tool_error_then_retry":
+    # Shape observed from codex-cli 0.160.0 when the tool itself reports an error.
+    bad = {**call, "id": "item_x", "tool": "profile_column", "arguments": {"table_name": "oltp.refunds", "column_name": "status"}}
+    emit({"type": "item.started", "item": {**bad, "result": None, "error": None, "status": "in_progress"}})
+    emit({"type": "item.completed", "item": {**bad, "error": None, "status": "failed", "result": {
+          "content": [{"type": "text", "text": "Error executing tool profile_column: column oltp.refunds.status does not exist"}],
+          "structured_content": None}}})
+if mode in ("ok", "bad_json", "tool_failed", "tool_error_then_retry"):
     emit({"type": "item.started", "item": {**call, "result": None, "error": None, "status": "in_progress"}})
     if mode == "tool_failed":
         emit({"type": "item.completed", "item": {**call, "result": None, "status": "failed",
@@ -149,6 +156,14 @@ def test_schema_valid_answer_is_rejected_when_the_required_tool_failed(fake_code
     (call,) = failure.value.tool_calls
     assert call.status == "failed" and "requires approval" in call.error
     assert failure.value.usage.input_tokens == 34239  # the failed turn is still accounted for
+
+
+def test_tool_level_error_is_recorded_with_its_message_beside_the_successful_retry(fake_codex, monkeypatch):
+    result = run("tool_error_then_retry", monkeypatch)
+    failed, succeeded = result.tool_calls
+    assert failed.status == "failed" and failed.result is None
+    assert failed.error == "Error executing tool profile_column: column oltp.refunds.status does not exist"
+    assert succeeded.status == "completed" and succeeded.tool == "run_readonly_sql"
 
 
 def test_schema_valid_answer_is_rejected_when_the_required_tool_was_never_called(fake_codex, monkeypatch):

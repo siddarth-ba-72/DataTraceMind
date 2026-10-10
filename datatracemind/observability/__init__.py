@@ -1,6 +1,7 @@
 from datatracemind.observability.tracing import (
     SpanHandle,
     current_trace_id,
+    delivery_problems,
     in_current_trace,
     init_tracing,
     investigation_run,
@@ -13,6 +14,7 @@ from datatracemind.observability.tracing import (
 __all__ = [
     "SpanHandle",
     "current_trace_id",
+    "delivery_problems",
     "in_current_trace",
     "init_tracing",
     "investigation_run",
