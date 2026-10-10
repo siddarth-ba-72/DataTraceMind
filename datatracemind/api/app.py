@@ -14,10 +14,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from datatracemind import db, demo, store
-from datatracemind.config import get_settings
+from datatracemind.config import REPO_ROOT, get_settings
 from datatracemind.llm import get_provider
 from datatracemind.monitoring.summary import live_transactions, metrics_summary
 from datatracemind.observability import init_tracing, shutdown_tracing
@@ -277,6 +278,11 @@ def create_app() -> FastAPI:
     def _refused(request: Request, exc: supervisor.InvestigationRefused) -> JSONResponse:
         return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
 
+    # The built dashboard, when present, is served from the same origin as
+    # the API. Mounted last so that /api routes take precedence.
+    dashboard = REPO_ROOT / "frontend" / "dist"
+    if (dashboard / "index.html").is_file():
+        app.mount("/", StaticFiles(directory=dashboard, html=True), name="dashboard")
     return app
 
 

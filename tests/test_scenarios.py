@@ -42,6 +42,7 @@ def test_ds01_is_silent_and_overstates_revenue_by_the_succeeded_refunds(baseline
     assert found["severity"] == "critical"
     assert found["status"] == "detected"
     assert "reported SUCCESS" in found["summary"]
+    assert "INR higher" in found["summary"] and "USD higher" in found["summary"]
 
 
 def test_ds02_fails_the_run_and_leaves_analytics_untouched(baseline):

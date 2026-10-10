@@ -59,16 +59,15 @@ def classify(failed: list[CheckResult]) -> str:
     return "data_quality"
 
 
-def _revenue_gap(check: CheckResult) -> tuple[str, float, float]:
-    """Currency with the largest relative net-revenue difference: (currency, difference, share)."""
-    worst = ("", 0.0, 0.0)
+def _revenue_gaps(check: CheckResult) -> list[tuple[str, float, float]]:
+    """Currencies that do not reconcile: (currency, difference, share of source net), largest share first."""
+    gaps = []
     for currency, sides in check.observed["by_currency"].items():
-        difference = sides["net_difference"]
+        if sides["within_tolerance"]:
+            continue
         base = abs(sides["source"]["net"]) or 1.0
-        share = abs(difference) / base
-        if share >= worst[2]:
-            worst = (currency, difference, share)
-    return worst
+        gaps.append((currency, sides["net_difference"], abs(sides["net_difference"]) / base))
+    return sorted(gaps, key=lambda gap: -gap[2])
 
 
 def assess(incident_type: str, result: RunResult) -> tuple[str, str]:
@@ -78,12 +77,18 @@ def assess(incident_type: str, result: RunResult) -> tuple[str, str]:
     if incident_type == "pipeline_failure":
         return "high", f"ETL run {result.run_id} failed: {result.error_summary}"
     if incident_type == "revenue_mismatch":
-        currency, difference, share = _revenue_gap(by_name["net_revenue_reconciliation"])
-        direction = "higher" if difference > 0 else "lower"
-        severity = "critical" if share >= CRITICAL_REVENUE_SHARE else "high"
+        reconciliation = by_name["net_revenue_reconciliation"]
+        gaps = _revenue_gaps(reconciliation)
+        if not gaps:
+            days = reconciliation.observed["mismatched_day_count"]
+            return "high", f"Net revenue is assigned to the wrong day on {days} days; totals reconcile; {declared}."
+        severity = "critical" if gaps[0][2] >= CRITICAL_REVENUE_SHARE else "high"
+        parts = [
+            f"{abs(difference):,.2f} {currency} {'higher' if difference > 0 else 'lower'} ({share:.1%})"
+            for currency, difference, share in gaps
+        ]
         return severity, (
-            f"Analytics net revenue is {abs(difference):,.2f} {currency} {direction} than the "
-            f"source-derived value ({share:.1%}); {declared}."
+            f"Analytics net revenue differs from the source-derived value: {' and '.join(parts)}; {declared}."
         )
     if incident_type == "record_loss":
         missing = sum(
