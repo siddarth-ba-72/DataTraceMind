@@ -1,0 +1,38 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4JD79M2NQEF9Y9MYB1GYCWX",
+  "strategy": "manual-commit",
+  "branch": "build/ds01-vertical-slice",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "datatracemind/agents/prompts.py",
+    "datatracemind/agents/roles.py",
+    "datatracemind/agents/runner.py",
+    "datatracemind/orchestration/routing.py",
+    "datatracemind/orchestration/state.py",
+    "datatracemind/orchestration/supervisor.py",
+    "datatracemind/repair/approval.py",
+    "datatracemind/repair/executor.py",
+    "datatracemind/repair/patch_store.py",
+    "datatracemind/repair/regression.py",
+    "datatracemind/repair/validation.py",
+    "tests/support.py",
+    "tests/test_workflow.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 94,
+    "cache_creation_tokens": 370868,
+    "cache_read_tokens": 11043100,
+    "output_tokens": 249875,
+    "api_call_count": 47
+  }
+}
