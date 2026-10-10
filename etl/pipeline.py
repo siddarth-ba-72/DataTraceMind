@@ -275,6 +275,7 @@ def run_once(
         )
         step = "configure"
         snapshot: SourceSnapshot | None = None
+        spec: TransformSpec | None = None
         try:
             spec = parse_spec(spec_text)
             with connect() as conn:
@@ -341,7 +342,10 @@ def run_once(
                 )
 
         with connect() as conn:
-            checks = [check_run_status(result.status, result.error_summary), check_source_schema(conn)]
+            schema_check = (
+                check_source_schema(conn, spec.source.orders.amount_column) if spec else check_source_schema(conn)
+            )
+            checks = [check_run_status(result.status, result.error_summary), schema_check]
             if result.status == "SUCCESS" and snapshot is not None:
                 checks.extend(run_target_checks(conn, target_schema, snapshot, contract))
             checks.append(check_declared_status(result.status, checks))

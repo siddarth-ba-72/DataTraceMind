@@ -48,9 +48,21 @@ class CheckResult:
         }
 
 
-def check_source_schema(conn: psycopg.Connection) -> CheckResult:
-    """Source columns and types still match the schema contract."""
+CONTRACT_AMOUNT_COLUMN = "total_amount"
+
+
+def check_source_schema(conn: psycopg.Connection, amount_column: str = CONTRACT_AMOUNT_COLUMN) -> CheckResult:
+    """The source columns the pipeline reads exist with the contracted types.
+
+    The schema contract names the order amount `total_amount`; the pipeline
+    reads it through `source.orders.amount_column` in the transformation
+    file, so that configured name is the one checked.
+    """
     expected = load_source_schema_contract()
+    orders = expected["orders"]
+    expected["orders"] = {
+        (amount_column if column == CONTRACT_AMOUNT_COLUMN else column): kind for column, kind in orders.items()
+    }
     rows = conn.execute(
         "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = 'oltp'"
     ).fetchall()
@@ -70,7 +82,10 @@ def check_source_schema(conn: psycopg.Connection) -> CheckResult:
         passed=not missing and not mismatched,
         severity="high",
         observed={"missing_columns": missing, "type_mismatches": mismatched, "unexpected_columns": unexpected},
-        expected="every column in contracts/schemas/oltp.yaml exists in the source with the contracted type",
+        expected=(
+            "every column in contracts/schemas/oltp.yaml exists in the source with the contracted type "
+            "(the order amount under the name set by source.orders.amount_column)"
+        ),
     )
 
 

@@ -14,17 +14,49 @@ from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from datatracemind import db, demo, store
 from datatracemind.config import get_settings
+from datatracemind.llm import get_provider
 from datatracemind.monitoring.summary import live_transactions, metrics_summary
 from datatracemind.observability import init_tracing, shutdown_tracing
+from datatracemind.orchestration import supervisor
+from datatracemind.repair import approval, executor, patch_store, validation
 from datatracemind.workers import EtlWorker
 from etl import run_log, transform_store
 
 logger = logging.getLogger(__name__)
 
-etl_worker = EtlWorker()
+
+def _auto_investigate(incident_id: str) -> None:
+    if not get_settings().auto_investigate:
+        return
+    try:
+        supervisor.start_investigation(incident_id)
+    except supervisor.InvestigationRefused as exc:
+        logger.warning("automatic investigation of %s not started: %s", incident_id, exc)
+
+
+etl_worker = EtlWorker(on_incident=_auto_investigate)
+
+# A name, not free text: it is stored in the transformation history, which
+# agents can read through get_etl_code, so it must not be able to carry
+# instructions.
+ApproverName = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9 ._@-]{0,59}$")
+
+
+class ApprovalDecision(BaseModel):
+    patch_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    approver: str = ApproverName
+
+
+class RejectionDecision(ApprovalDecision):
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class ApplyRequest(BaseModel):
+    patch_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 @asynccontextmanager
@@ -71,6 +103,8 @@ def health() -> dict:
 
 @guarded.post("/demo/reset")
 def demo_reset() -> dict:
+    if supervisor.investigation_running():
+        raise HTTPException(status_code=409, detail="an investigation is running; wait for it to finish")
     return demo.reset()
 
 
@@ -109,7 +143,10 @@ def scenarios() -> dict:
 def scenario_inject(scenario_id: str) -> dict:
     if scenario_id not in demo.SCENARIOS:
         raise HTTPException(status_code=404, detail=f"unknown scenario {scenario_id}")
-    return demo.inject(scenario_id)
+    report = demo.inject(scenario_id)
+    if report["incident_id"]:
+        _auto_investigate(report["incident_id"])
+    return report
 
 
 # --- Incidents ---------------------------------------------------------------
@@ -151,6 +188,74 @@ def audit_log(limit: int = 200) -> list[dict]:
     )
 
 
+# --- Agent and repair lifecycle ---------------------------------------------
+
+
+@router.get("/agent/status")
+def agent_status() -> dict:
+    """Whether an investigation could start now, and why not if it could not."""
+    provider = get_provider()
+    availability = provider.availability()
+    settings = get_settings()
+    return {
+        "available": availability.available,
+        "method": availability.method,
+        "detail": availability.detail,
+        "provider": provider.name,
+        "model": provider.model,
+        "workflow_version": supervisor.WORKFLOW_VERSION,
+        "investigation_running": supervisor.investigation_running(),
+        "auto_investigate": settings.auto_investigate,
+        "limits": {"per_hour": settings.investigations_per_hour, "per_day": settings.investigations_per_day},
+        "access_code_required": settings.demo_access_code is not None,
+    }
+
+
+@guarded.post("/incidents/{incident_id}/investigate", status_code=202)
+def incident_investigate(incident_id: str) -> dict:
+    return supervisor.start_investigation(incident_id)
+
+
+@guarded.post("/incidents/{incident_id}/validate")
+def incident_validate(incident_id: str) -> dict:
+    return validation.validate_proposal(incident_id).model_dump(mode="json")
+
+
+@guarded.post("/incidents/{incident_id}/approve")
+def incident_approve(incident_id: str, decision: ApprovalDecision) -> dict:
+    outcome = supervisor.approve_and_apply(incident_id, decision.patch_hash, actor=decision.approver)
+    return {"decision": "approved", "post_fix": outcome, "incident": store.get_incident(incident_id)}
+
+
+@guarded.post("/incidents/{incident_id}/reject")
+def incident_reject(incident_id: str, decision: RejectionDecision) -> dict:
+    supervisor.reject(incident_id, decision.patch_hash, actor=decision.approver, reason=decision.reason)
+    return {"decision": "rejected", "incident": store.get_incident(incident_id)}
+
+
+@guarded.post("/incidents/{incident_id}/apply")
+def incident_apply(incident_id: str, request: ApplyRequest) -> dict:
+    outcome = executor.apply_approved_patch(incident_id, request.patch_hash)
+    return {"post_fix": outcome, "incident": store.get_incident(incident_id)}
+
+
+@guarded.post("/incidents/{incident_id}/verify")
+def incident_verify(incident_id: str) -> dict:
+    """Run post-fix verification if it is pending; otherwise return the recorded result."""
+    with db.connect() as conn:
+        status = store.get_incident_row(conn, incident_id)["status"]
+    if status == "applying":
+        return executor.run_post_fix_verification(incident_id)
+    with db.connect() as conn:
+        try:
+            proposal = patch_store.get_proposal(conn, incident_id)
+        except LookupError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if proposal["post_fix_result"] is None:
+        raise HTTPException(status_code=409, detail=f"{incident_id} is {status}; no repair has been applied")
+    return proposal["post_fix_result"]
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="DataTraceMind", lifespan=lifespan)
     app.include_router(router)
@@ -162,8 +267,15 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(store.IllegalTransition)
     @app.exception_handler(demo.LabError)
+    @app.exception_handler(approval.ApprovalRefused)
+    @app.exception_handler(executor.ApplyRefused)
+    @app.exception_handler(validation.ValidationRefused)
     def _conflict(request: Request, exc: Exception) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    @app.exception_handler(supervisor.InvestigationRefused)
+    def _refused(request: Request, exc: supervisor.InvestigationRefused) -> JSONResponse:
+        return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
 
     return app
 
