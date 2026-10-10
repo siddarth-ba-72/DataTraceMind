@@ -1,0 +1,55 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4JC34TY7PVQZMZ4RSR6R930",
+  "strategy": "manual-commit",
+  "branch": "build/ds01-vertical-slice",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".env.example",
+    ".gitignore",
+    "contracts/orders.md",
+    "contracts/revenue.md",
+    "contracts/schemas/oltp.yaml",
+    "datatracemind/config.py",
+    "datatracemind/db.py",
+    "docker-compose.yml",
+    "etl/__init__.py",
+    "etl/contract.py",
+    "etl/metrics.py",
+    "etl/pipeline.py",
+    "etl/quality_checks.py",
+    "etl/run_log.py",
+    "etl/transform_store.py",
+    "etl/transforms/__init__.py",
+    "etl/transforms/order_revenue.py",
+    "etl/transforms/order_revenue.yaml",
+    "etl/transforms/spec.py",
+    "infra/postgres/dtm.sql",
+    "infra/postgres/oltp.sql",
+    "infra/postgres/pipeline.sql",
+    "infra/postgres/target.sql",
+    "pytest.ini",
+    "requirements.txt",
+    "simulator/__init__.py",
+    "simulator/generator.py",
+    "tests/__init__.py",
+    "tests/conftest.py",
+    "tests/test_transform.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 0,
+    "api_call_count": 0
+  }
+}
