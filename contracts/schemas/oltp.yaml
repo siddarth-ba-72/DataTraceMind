@@ -1,0 +1,29 @@
+# Schema contract for the operational source. The ETL depends on exactly
+# these columns; the `source_schema_contract` quality check compares them with
+# information_schema before every run.
+version: 1
+schema: oltp
+tables:
+  orders:
+    order_id: bigint
+    customer_id: bigint
+    order_status: text
+    total_amount: numeric
+    currency: character
+    created_at: timestamp with time zone
+    updated_at: timestamp with time zone
+  payments:
+    payment_id: bigint
+    order_id: bigint
+    payment_status: text
+    amount: numeric
+    paid_at: timestamp with time zone
+    updated_at: timestamp with time zone
+  refunds:
+    refund_id: bigint
+    payment_id: bigint
+    order_id: bigint
+    refund_status: text
+    refund_amount: numeric
+    created_at: timestamp with time zone
+    updated_at: timestamp with time zone

@@ -1,0 +1,33 @@
+# Order-to-revenue transformation.
+#
+# The ETL reads the active version of this file on every run. It decides how
+# source rows become fact rows; etl/transforms/order_revenue.py interprets it.
+# Changing it is a deployment: a new version is recorded and the facts are
+# rebuilt from the source.
+
+pipeline: order_revenue
+
+source:
+  orders:
+    # Source column that holds the order amount.
+    amount_column: total_amount
+
+fact_orders:
+  # How orders are joined to their payments when building fact_orders.
+  # left keeps orders that have no payment; inner drops them.
+  payment_join: left
+
+revenue:
+  # Business timezone used to assign rows to a reporting day.
+  timezone: Asia/Kolkata
+  # Payments with one of these statuses count as gross revenue.
+  payment_statuses: [CAPTURED]
+  # Refunds with one of these statuses are subtracted from revenue.
+  refund_statuses: [SUCCEEDED]
+  # Amount subtracted per qualifying refund: refund_amount or order_total.
+  refund_amount_basis: refund_amount
+
+load:
+  # replace_by_key rewrites the rows of each affected order (idempotent);
+  # append inserts without removing earlier rows.
+  mode: replace_by_key
