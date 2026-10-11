@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4N7SV58G1QFQ1MYFES86KHZ",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "frontend/index.html",
+    "frontend/lab/index.html",
+    "frontend/src/components/Audit.jsx",
+    "frontend/src/components/Incident.jsx",
+    "frontend/src/components/RevenueChart.jsx",
+    "frontend/src/lab/ScenarioCatalog.jsx",
+    "frontend/src/lab/lab.css",
+    "frontend/src/styles.css"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 138,
+    "cache_creation_tokens": 293431,
+    "cache_read_tokens": 12617496,
+    "output_tokens": 116021,
+    "api_call_count": 64
+  }
+}

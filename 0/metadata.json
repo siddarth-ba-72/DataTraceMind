@@ -1,0 +1,73 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4N7SV58G1QFQ1MYFES86KHZ",
+  "session_id": "07f7b720-194c-408b-a183-0fddb314f8fa",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-11T10:23:13.281807Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "frontend/index.html",
+    "frontend/lab/index.html",
+    "frontend/src/components/Audit.jsx",
+    "frontend/src/components/Incident.jsx",
+    "frontend/src/components/RevenueChart.jsx",
+    "frontend/src/lab/ScenarioCatalog.jsx",
+    "frontend/src/lab/lab.css",
+    "frontend/src/styles.css"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "turn_id": "6a760c0ee75a",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 138,
+    "cache_creation_tokens": 293431,
+    "cache_read_tokens": 12617496,
+    "output_tokens": 116021,
+    "api_call_count": 64
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-11T10:23:12.958281Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 51,
+    "total_committed": 0,
+    "total_lines_changed": 51,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 221,
+      "user_lines_removed": 51,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "frontend/index.html": 4,
+        "frontend/lab/index.html": 4,
+        "frontend/src/components/Audit.jsx": 4,
+        "frontend/src/components/Incident.jsx": 16,
+        "frontend/src/components/RevenueChart.jsx": 45,
+        "frontend/src/lab/ScenarioCatalog.jsx": 8,
+        "frontend/src/lab/lab.css": 30,
+        "frontend/src/styles.css": 110
+      },
+      "user_removed_per_file": {
+        "frontend/src/components/Audit.jsx": 4,
+        "frontend/src/components/Incident.jsx": 6,
+        "frontend/src/components/RevenueChart.jsx": 15,
+        "frontend/src/lab/ScenarioCatalog.jsx": 2,
+        "frontend/src/lab/lab.css": 5,
+        "frontend/src/styles.css": 19
+      }
+    }
+  ]
+}
