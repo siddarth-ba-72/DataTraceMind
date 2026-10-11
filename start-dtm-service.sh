@@ -5,6 +5,9 @@
 #   ~/dtm_build/.env                 settings, copied into the app on every run
 #   ~/data_trace_mind/               the unpacked app, replaced on every run
 #
+# .github/workflows/backend-deploy.yml uploads the build and this script to
+# ~/dtm_build/ and runs it after every backend push to main that passes tests.
+#
 # PostgreSQL runs in Docker and keeps its data in a named volume, so the
 # database survives a redeploy. The API runs in the background, writes to
 # ~/dtm-service.log, and records its pid in ~/dtm-service.pid.

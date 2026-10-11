@@ -1,0 +1,151 @@
+# Build, test, and deploy the backend.
+#
+# Runs on every push to main that changes a backend file. The commit is tested
+# against a fresh PostgreSQL. Only if every test passes is it packed into
+# dtm-backend.tar.gz, copied over the previous build in ~/dtm_build/ on the EC2
+# host, and started there with start-dtm-service.sh.
+#
+# Repository settings this workflow reads
+# (Settings -> Secrets and variables -> Actions):
+#
+#   secret    EC2_SSH_KEY   private key (.pem) of the instance's key pair
+#   variable  EC2_HOST      public DNS name or IP address of the instance
+#   variable  EC2_USER      login user; optional, defaults to ec2-user
+#
+# The host must already hold ~/dtm_build/.env, and its security group must
+# allow SSH (port 22) from GitHub-hosted runners.
+name: Backend deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "datatracemind/**"
+      - "etl/**"
+      - "simulator/**"
+      - "contracts/**"
+      - "infra/**"
+      - "tests/**"
+      - "requirements.txt"
+      - "pytest.ini"
+      - "docker-compose.yml"
+      - "start-dtm-service.sh"
+      - ".github/workflows/backend-deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      # Same image and credentials as docker-compose.yml; tests/conftest.py
+      # creates its own datatracemind_test database on this server.
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: dtm_admin
+          POSTGRES_PASSWORD: dtm_local_dev
+          POSTGRES_DB: datatracemind
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dtm_admin -d datatracemind"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Build
+        run: python -m compileall -q datatracemind etl simulator
+
+      - name: Test
+        run: python -m pytest
+
+      # Packed from the commit rather than the working tree, so nothing the
+      # build or the tests left behind is shipped. start-dtm-service.sh
+      # refuses an archive that lacks these paths.
+      - name: Package
+        run: |
+          git archive --format=tar.gz -o dtm-backend.tar.gz HEAD \
+            datatracemind etl simulator contracts infra requirements.txt docker-compose.yml
+
+      - name: Keep the build
+        uses: actions/upload-artifact@v7
+        with:
+          name: dtm-backend
+          path: |
+            dtm-backend.tar.gz
+            start-dtm-service.sh
+          if-no-files-found: error
+          retention-days: 14
+
+  deploy:
+    name: Deploy to EC2
+    needs: build-test
+    # A manual run on another branch stops after the tests.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # One deploy at a time. A newer one waits for the running one to finish.
+    concurrency:
+      group: backend-deploy
+      cancel-in-progress: false
+    env:
+      EC2_HOST: ${{ vars.EC2_HOST }}
+      EC2_USER: ${{ vars.EC2_USER || 'ec2-user' }}
+    steps:
+      - name: Download the build
+        uses: actions/download-artifact@v8
+        with:
+          name: dtm-backend
+
+      - name: Set up SSH
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          if [[ -z "$EC2_HOST" || -z "$EC2_SSH_KEY" ]]; then
+            echo "::error::Set the EC2_HOST variable and the EC2_SSH_KEY secret in the repository settings."
+            exit 1
+          fi
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/dtm_deploy
+          # The runner is new on every run, so the host key is taken on first contact.
+          if ! ssh-keyscan -T 15 "$EC2_HOST" > ~/.ssh/known_hosts 2>/dev/null || [[ ! -s ~/.ssh/known_hosts ]]; then
+            echo "::error::Cannot reach $EC2_HOST on port 22. Check that the instance is running, that EC2_HOST is its current address, and that its security group allows SSH from GitHub Actions."
+            exit 1
+          fi
+          cat > ~/.ssh/config <<EOF
+          Host dtm
+            HostName $EC2_HOST
+            User $EC2_USER
+            IdentityFile ~/.ssh/dtm_deploy
+            IdentitiesOnly yes
+            BatchMode yes
+            ConnectTimeout 15
+            ServerAliveInterval 30
+          EOF
+
+      - name: Replace the build on the host
+        run: |
+          ssh dtm 'mkdir -p dtm_build'
+          scp dtm-backend.tar.gz start-dtm-service.sh dtm:dtm_build/
+
+      # A login shell, so the API inherits the same PATH (uv, the Codex CLI)
+      # as when the script is run by hand. The script exits non-zero unless
+      # /api/health answers, which fails this job.
+      - name: Start the services
+        run: ssh dtm 'bash -l dtm_build/start-dtm-service.sh'
