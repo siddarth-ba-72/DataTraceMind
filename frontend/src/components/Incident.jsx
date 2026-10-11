@@ -27,6 +27,7 @@ const OFF_PATH = new Set(["validation_failed", "application_failed", "rejected",
 
 function Lifecycle({ incident }) {
   const visited = new Set(incident.events.filter((e) => e.event_type === "lifecycle").map((e) => e.status));
+  const position = LIFECYCLE.findIndex(([status]) => status === incident.status);
   return (
     <div className="lifecycle-scroll">
       <ol className="lifecycle" aria-label="Incident lifecycle">
@@ -37,11 +38,20 @@ function Lifecycle({ incident }) {
               <span className="step-dot" aria-hidden="true">
                 {state === "done" ? "✓" : ""}
               </span>
-              {label}
+              <span className="step-label">{label}</span>
             </li>
           );
         })}
       </ol>
+      {/* Shown only where the row is too narrow to label every step. */}
+      {position >= 0 && (
+        <p className="lifecycle-caption" aria-hidden="true">
+          {LIFECYCLE[position][1]}{" "}
+          <span>
+            · step {position + 1} of {LIFECYCLE.length}
+          </span>
+        </p>
+      )}
     </div>
   );
 }
@@ -517,7 +527,7 @@ function IncidentList({ incidents, onSelect }) {
           </div>
         ) : (
           <div className="table-scroll">
-            <table className="table clickable">
+            <table className="table table-cards clickable">
               <thead>
                 <tr>
                   <th>Incident</th>
@@ -543,12 +553,12 @@ function IncidentList({ incidents, onSelect }) {
                     <td>
                       <Badge value={incident.status} />
                     </td>
-                    <td className="nowrap">{titleCase(incident.incident_type)}</td>
-                    <td>
+                    <td className="cell-meta nowrap">{titleCase(incident.incident_type)}</td>
+                    <td className="cell-wide">
                       <span className="cell-clip">{incident.summary}</span>
                     </td>
-                    <td className="nowrap muted">{dateTime(incident.detected_at)}</td>
-                    <td className="right nowrap muted">
+                    <td className="cell-meta nowrap muted">{dateTime(incident.detected_at)}</td>
+                    <td className="cell-meta right nowrap muted">
                       {incident.resolved_at
                         ? between(incident.detected_at, incident.resolved_at)
                         : `${since(incident.detected_at).replace(" ago", "")} open`}

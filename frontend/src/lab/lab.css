@@ -20,9 +20,18 @@
 .lab-link:hover { text-decoration: none; border-color: var(--nav-text-muted); }
 .lab-bar .access-code { background: var(--nav-raised); border-color: var(--nav-border); color: var(--nav-text-strong); }
 
-.lab-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 16px; align-items: stretch; }
+.lab-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 16px; align-items: stretch; }
 .lab-row > * { min-width: 0; }
-@media (max-width: 520px) { .lab-row { grid-template-columns: minmax(0, 1fr); } .lab-bar { padding: 0 16px; } }
+/* On a phone the bar scrolls away with the page and wraps: the name and the
+   simulation tag on the first row, the access code and the console link under them. */
+@media (max-width: 700px) {
+  .lab-bar { position: static; height: auto; flex-wrap: wrap; gap: 10px 12px; padding: 10px 16px; }
+  .lab-bar .spacer { display: none; }
+  .lab-env { margin-left: auto; }
+  .lab-bar .access-code { flex: 1 1 110px; min-width: 0; }
+  .lab-link { flex: 1 1 auto; justify-content: center; }
+}
+@media (pointer: coarse) { .lab-link { height: 40px; } }
 
 /* --- The four steps of a run ------------------------------------------------ */
 
@@ -39,9 +48,15 @@
 .flow-done .flow-number { background: var(--good-wash); border-color: var(--good); color: var(--good-ink); }
 .flow-current { background: var(--accent-wash); box-shadow: inset 0 -2px 0 var(--accent); }
 .flow-current .flow-number { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+/* Two by two on a tablet, one under another on a phone. */
 @media (max-width: 900px) {
+  .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .flow-step:nth-child(odd) { border-left: 0; }
+  .flow-step:nth-child(n + 3) { border-top: 1px solid var(--border); }
+}
+@media (max-width: 560px) {
   .flow { grid-template-columns: minmax(0, 1fr); }
-  .flow-step { border-left: 0; border-top: 1px solid var(--border); }
+  .flow-step { border-left: 0; border-top: 1px solid var(--border); padding: 10px 14px; }
   .flow-step:first-child { border-top: 0; }
 }
 
@@ -50,7 +65,9 @@
   background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--good);
   border-radius: var(--radius); box-shadow: var(--shadow-sm);
 }
-.headline > div { flex: 1 1 420px; min-width: 0; }
+/* The text keeps the status dot beside it however narrow the row gets. */
+.headline > div { flex: 1 1 min(420px, calc(100% - 24px)); min-width: 0; }
+@media (max-width: 700px) { .headline > .dot { align-self: flex-start; margin-top: 7px; } }
 .headline-warning { border-left-color: var(--warning); }
 .headline-critical { border-left-color: var(--critical); }
 
@@ -60,6 +77,13 @@
 .traffic-rate { margin-left: auto; }
 /* Fixed width, so the card's heading does not rewrap when the state or rate changes. */
 .traffic-state { display: flex; justify-content: flex-end; min-width: 228px; }
+/* On a phone the rate gets a row to itself: three equal options, each with its pace under its name. */
+@media (max-width: 700px) {
+  .traffic-state { justify-content: flex-start; min-width: 0; }
+  .traffic-rate { flex: 1 1 100%; flex-direction: column; align-items: stretch; gap: 4px; margin-left: 0; }
+  .traffic-rate .segmented { display: flex; flex-wrap: nowrap; }
+  .traffic-rate .segmented button { flex: 1 1 0; min-width: 0; flex-direction: column; gap: 0; padding: 5px 4px; }
+}
 .counters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin-top: 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .counter { padding: 10px 14px; border-left: 1px solid var(--border); }
 .counter:first-child { border-left: 0; }
@@ -93,7 +117,8 @@
 .scenario-row-name { font-weight: 600; }
 .scenario-row-meta { font-size: 11.5px; color: var(--text-muted); }
 
-.scenario-detail { padding: 18px 22px 20px; min-width: 0; }
+.scenario-detail { padding: 18px 22px 20px; min-width: 0; scroll-margin-top: 72px; }
+@media (max-width: 700px) { .scenario-detail { padding: 16px 14px 18px; scroll-margin-top: 12px; } }
 .scenario-detail-head h2 { font-size: 17px; letter-spacing: -0.01em; margin: 8px 0 6px; }
 .scenario-detail-head p { color: var(--text-secondary); max-width: 80ch; }
 .scenario-facts {

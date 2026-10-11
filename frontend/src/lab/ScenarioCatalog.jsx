@@ -71,7 +71,7 @@ function ScenarioDetail({ scenario, active, incident, blockedBy, incidentUrl, co
   const activeId = active?.scenario_id;
   const isActive = activeId === scenario.scenario_id;
   return (
-    <article className="scenario-detail" aria-live="polite">
+    <article id="scenario-detail" className="scenario-detail" aria-live="polite">
       <header className="scenario-detail-head">
         <div className="row">
           <span className="id">{scenario.scenario_id}</span>
@@ -162,6 +162,12 @@ export default function ScenarioCatalog({
   // Follow the injected scenario until the operator picks another one to read.
   const selectedId = chosen ?? active?.scenario_id ?? scenarios[0].scenario_id;
   const selected = shown.find((s) => s.scenario_id === selectedId) ?? shown[0];
+  const choose = (scenarioId) => {
+    setChosen(scenarioId);
+    // On a narrow screen the detail sits under the list, out of view.
+    if (window.matchMedia("(max-width: 960px)").matches)
+      document.getElementById("scenario-detail")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   return (
     <Card
@@ -190,7 +196,7 @@ export default function ScenarioCatalog({
               scenario={scenario}
               selected={scenario.scenario_id === selected?.scenario_id}
               injected={scenario.scenario_id === active?.scenario_id}
-              onSelect={setChosen}
+              onSelect={choose}
             />
           ))}
         </ul>

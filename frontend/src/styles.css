@@ -52,6 +52,7 @@
 
   --shadow-sm: 0 1px 2px rgb(16 22 36 / 5%);
   --shadow-md: 0 6px 20px rgb(16 22 36 / 12%);
+  --scroll-shadow: rgb(16 22 36 / 16%);
   --radius: 8px;
   --radius-sm: 6px;
   --sidebar-width: 236px;
@@ -97,6 +98,7 @@
 
     --shadow-sm: none;
     --shadow-md: 0 6px 20px rgb(0 0 0 / 45%);
+    --scroll-shadow: rgb(0 0 0 / 60%);
   }
 }
 
@@ -133,7 +135,7 @@ ul, ol { margin: 0; padding: 0; }
 .icon { flex: none; display: block; }
 .stack { display: flex; flex-direction: column; gap: 16px; }
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; }
+.columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr)); gap: 16px; }
 .columns > * { min-width: 0; }
 .eyebrow { font-size: 11px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -151,7 +153,7 @@ ul, ol { margin: 0; padding: 0; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 2px 6px 14px; color: var(--nav-text-strong); }
 .brand:hover { text-decoration: none; }
 .brand-mark { flex: none; border-radius: 7px; }
-.brand-name { font-size: 14.5px; font-weight: 650; letter-spacing: -0.01em; line-height: 1.2; }
+.brand-name { font-size: 14.5px; font-weight: 650; letter-spacing: -0.01em; line-height: 1.2; white-space: nowrap; }
 .brand-tag { font-size: 11px; color: var(--nav-text-muted); line-height: 1.3; }
 
 .nav-label { font-size: 10.5px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; color: var(--nav-text-muted); padding: 14px 8px 6px; }
@@ -194,8 +196,10 @@ ul, ol { margin: 0; padding: 0; }
 .crumbs { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; color: var(--text-muted); }
 .crumbs button { appearance: none; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
 .crumbs button:hover { color: var(--text); }
-.crumbs .crumb-current { color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+/* Only the current page gives way when the bar runs out of room. */
+.crumbs > * { flex: none; }
+.crumbs .crumb-current { flex: 0 1 auto; min-width: 0; color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.topbar-right { flex: none; margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .topbar-meta { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
 .access-code { width: 160px; }
 
@@ -205,7 +209,8 @@ ul, ol { margin: 0; padding: 0; }
 .page-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 
 @media (max-width: 980px) {
-  .shell { grid-template-columns: minmax(0, 1fr); }
+  /* The navigation row keeps its own height; a short page's spare room goes to the content. */
+  .shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
   .sidebar { position: static; height: auto; flex-direction: row; align-items: center; overflow-x: auto; padding: 8px 12px; gap: 2px; }
   .brand { padding: 0 10px 0 4px; }
   .brand-tag, .nav-label, .nav-hint, .sidebar-foot { display: none; }
@@ -217,13 +222,38 @@ ul, ol { margin: 0; padding: 0; }
   .content { padding: 18px 16px 56px; }
 }
 
+/* On a phone the brand and the lab link share the first row, and the three
+   sections become tabs under it. The top bar drops what the page repeats: the
+   trail and the trust badge share a row, and an access code field, when one
+   is asked for, takes a row of its own. */
+@media (max-width: 700px) {
+  .sidebar { flex-wrap: wrap; overflow-x: visible; padding: 8px 12px 0; gap: 6px 2px; }
+  .sidebar .brand { flex: 1; min-width: 0; }
+  .sidebar > .nav-item { order: 1; }
+  .sidebar nav { order: 2; flex: 1 1 100%; }
+  .sidebar nav .nav-item { flex: 1; justify-content: center; gap: 7px; padding: 9px 4px; border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
+  .topbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; height: auto; min-height: var(--topbar-height); gap: 8px 12px; padding: 8px 16px; }
+  .topbar-right { display: contents; }
+  .topbar .access-code { grid-column: 1 / -1; width: auto; }
+  /* Two rows are too much to pin to the top of a phone, so that bar scrolls with the page. */
+  .topbar:has(.access-code) { position: static; }
+  .crumbs > span:first-child, .crumbs > span:first-child + .icon { display: none; }
+  .topbar-meta { display: none; }
+  .page-actions { width: 100%; }
+  .page-actions .search { flex: 1; }
+  .page-actions .search input { width: 100%; }
+}
+@media (max-width: 380px) {
+  .sidebar nav .icon, .sidebar .nav-trailing { display: none; }
+}
+
 /* --- Cards, buttons, form controls ---------------------------------------- */
 
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); min-width: 0; }
 .card-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 8px 16px; padding: 14px 18px 0; }
 .card-head > :first-child { flex: 1 1 240px; min-width: 0; }
 .card-head p { max-width: 92ch; margin-top: 2px; font-size: 12.5px; }
-.card-actions { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 24px; }
+.card-actions { flex: 0 1 auto; min-width: 0; max-width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 24px; }
 .card-body { padding: 14px 18px 16px; }
 .card-head + .card-body { padding-top: 12px; }
 .card-flush > .card-body { padding-left: 0; padding-right: 0; padding-bottom: 4px; }
@@ -258,20 +288,33 @@ input, select {
 input::placeholder { color: var(--text-muted); }
 input[type="checkbox"] { height: auto; padding: 0; accent-color: var(--accent); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.field-inline { display: inline-flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 12.5px; }
-.search { position: relative; display: inline-flex; align-items: center; }
+.field-inline { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; color: var(--text-secondary); font-size: 12.5px; }
+.search { position: relative; display: inline-flex; align-items: center; max-width: 100%; }
 .search .icon { position: absolute; left: 9px; color: var(--text-muted); pointer-events: none; }
-.search input { padding-left: 30px; width: 240px; }
+.search input { padding-left: 30px; width: 240px; max-width: 100%; }
 
-.segmented { display: inline-flex; padding: 2px; gap: 2px; background: var(--surface-sunken); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+/* The options wrap onto more rows rather than push the page wider than the screen. */
+.segmented { display: inline-flex; flex-wrap: wrap; max-width: 100%; padding: 2px; gap: 2px; background: var(--surface-sunken); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .segmented button {
   appearance: none; border: 0; background: none; cursor: pointer; font: inherit; font-weight: 550; color: var(--text-secondary);
-  padding: 4px 11px; border-radius: 4px; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 11px; border-radius: 4px; white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  flex: 1 1 auto;
 }
 .segmented button:hover:not(:disabled) { color: var(--text); }
 .segmented button:disabled { cursor: not-allowed; opacity: 0.6; }
 .segmented button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm), 0 0 0 1px var(--border); }
 .segmented .count { font-size: 11px; color: var(--text-muted); font-weight: 600; }
+
+/* Touch screens: controls tall enough for a thumb, and text fields at 16px,
+   below which iOS zooms the page in when one takes focus. */
+@media (pointer: coarse) {
+  .button, input, select { height: 40px; }
+  .button-large { height: 44px; }
+  input, select { font-size: 16px; }
+  input[type="checkbox"] { width: 18px; height: 18px; }
+  .segmented button { padding: 8px 12px; }
+  .section-nav a { padding: 9px 8px; }
+}
 
 /* --- Badges, tags, notes --------------------------------------------------- */
 
@@ -315,7 +358,7 @@ summary > .tag:last-child { margin-left: 8px; margin-right: 0; }
 
 /* --- KPI tiles -------------------------------------------------------------- */
 
-.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr)); gap: 16px; }
 .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 18px 16px; box-shadow: var(--shadow-sm); min-width: 0; display: flex; flex-direction: column; }
 .kpi-label { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
 .kpi-label .icon { color: var(--text-muted); }
@@ -331,7 +374,16 @@ summary > .tag:last-child { margin-left: 8px; margin-right: 0; }
 
 /* --- Tables ---------------------------------------------------------------- */
 
-.table-scroll { overflow-x: auto; }
+/* A table too wide for its card scrolls sideways. A shadow shows at an edge
+   while more of the table lies beyond it, and is covered once that end is reached. */
+.table-scroll {
+  overflow-x: auto;
+  background:
+    linear-gradient(to right, var(--surface) 40%, transparent) left / 36px 100% no-repeat local,
+    linear-gradient(to left, var(--surface) 40%, transparent) right / 36px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, var(--scroll-shadow), transparent) left / 12px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, var(--scroll-shadow), transparent) right / 12px 100% no-repeat scroll;
+}
 .table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .table th {
   text-align: left; font-weight: 600; color: var(--text-muted); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase;
@@ -346,7 +398,8 @@ summary > .tag:last-child { margin-left: 8px; margin-right: 0; }
 .table.clickable tbody tr:hover td { background: var(--surface-hover); }
 /* Identifiers in a table cell stay on one line; the cell scrolls with the table instead. */
 .table td > code { overflow-wrap: normal; white-space: nowrap; }
-.table .right { text-align: right; }
+/* An amount never breaks between its sign and its digits; the table scrolls instead. */
+.table .right { text-align: right; white-space: nowrap; }
 .table .row-strong td { font-weight: 600; }
 .differs { color: var(--critical-ink); font-weight: 600; }
 .table-inset th:first-child, .table-inset td:first-child { padding-left: 12px; }
@@ -356,6 +409,21 @@ summary > .tag:last-child { margin-left: 8px; margin-right: 0; }
 .cell-clip { max-width: 520px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .feed-totals { padding: 0 18px 10px; font-size: 12px; }
 .audit-details { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 12px; overflow-wrap: anywhere; }
+
+/* On a phone a table of records reads as a list: the header row goes and each
+   row wraps, its identifying cells first, then a full-width cell, then the
+   supporting ones. */
+@media (max-width: 700px) {
+  .table-cards, .table-cards tbody { display: block; }
+  .table-cards thead { display: none; }
+  .table-cards tr { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 12px 18px; border-bottom: 1px solid var(--border); }
+  .table-cards tr:last-child { border-bottom: 0; }
+  .table.table-cards td, .table.table-cards td:first-child, .table.table-cards td:last-child { padding: 0; border: 0; }
+  .table-cards .cell-wide { order: 1; flex: 1 1 100%; }
+  .table-cards .cell-meta { order: 2; font-size: 12px; }
+  .table-cards .cell-meta.right { margin-left: auto; }
+  .table-cards .cell-clip { max-width: none; -webkit-line-clamp: 3; }
+}
 
 /* --- Chart ----------------------------------------------------------------- */
 
@@ -367,7 +435,8 @@ summary > .tag:last-child { margin-left: 8px; margin-right: 0; }
 .legend-line.series-2, .legend-dot.series-2 { background: var(--series-2); }
 .chart-toggle { margin-left: auto; font-size: 12px; }
 .chart-frame { position: relative; }
-.chart-frame svg { display: block; width: 100%; height: auto; touch-action: none; }
+/* A sideways drag reads the chart; an up or down one still scrolls the page. */
+.chart-frame svg { display: block; width: 100%; height: auto; touch-action: pan-y; }
 .chart .grid { stroke: var(--border); stroke-width: 1; }
 .chart .axis { fill: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .chart .crosshair { stroke: var(--text-muted); stroke-width: 1; }
@@ -384,6 +453,10 @@ summary > .tag:last-child { margin-left: 8px; margin-right: 0; }
   box-shadow: var(--shadow-md); font-size: 12px; white-space: nowrap;
 }
 .tooltip-left { transform: translateX(calc(-100% - 12px)); }
+/* A narrow chart has no room beside the pointer, so the readout lies over the legend above it. */
+.chart { position: relative; }
+.chart-frame:has(.tooltip-above) { position: static; }
+.tooltip-above { top: 0; left: 0; right: 0; transform: none; white-space: normal; }
 .tooltip-title { font-weight: 600; margin-bottom: 4px; }
 .tooltip-row { display: flex; align-items: center; gap: 7px; }
 .tooltip-delta { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--border); color: var(--text-secondary); }
@@ -397,8 +470,8 @@ summary > .tag:last-child { margin-left: 8px; margin-right: 0; }
 .incident-meta { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12.5px; color: var(--text-muted); }
 .incident-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; max-width: 320px; text-align: right; font-size: 12px; }
 
-.lifecycle-scroll { overflow-x: auto; margin: 18px 0 0; padding: 16px 0 2px; border-top: 1px solid var(--border); }
-.lifecycle { list-style: none; display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); min-width: 760px; }
+.lifecycle-scroll { container-type: inline-size; overflow-x: auto; margin: 18px 0 0; padding: 16px 0 2px; border-top: 1px solid var(--border); }
+.lifecycle { list-style: none; display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); }
 .step { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; font-size: 11.5px; line-height: 1.3; color: var(--text-muted); padding: 0 4px; }
 /* The connector into a step runs from the previous dot to this one. */
 .step::before { content: ""; position: absolute; top: 9px; left: calc(-50% + 13px); right: calc(50% + 13px); height: 1.5px; background: var(--border-strong); }
@@ -409,11 +482,29 @@ summary > .tag:last-child { margin-left: 8px; margin-right: 0; }
 .step-done::before, .step-current::before { background: var(--good); }
 .step-current { color: var(--text); font-weight: 650; }
 .step-current .step-dot { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); }
+.lifecycle-caption { display: none; }
+/* Too narrow for nine labels: the dots stay in a row and only the current step is named, under them. */
+@container (max-width: 599px) {
+  .lifecycle { padding: 3px 0; }
+  .step { padding: 0; }
+  .step::before { left: calc(-50% + 10px); right: calc(50% + 10px); }
+  .step-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .lifecycle-caption { display: block; margin-top: 8px; text-align: center; font-size: 12.5px; font-weight: 650; }
+  .lifecycle-caption span { font-weight: 400; color: var(--text-muted); }
+}
 
 .detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) 296px; gap: 16px; align-items: start; }
 .detail-grid > * { min-width: 0; }
 .aside { position: sticky; top: calc(var(--topbar-height) + 16px); display: flex; flex-direction: column; gap: 16px; }
-@media (max-width: 1180px) { .detail-grid { grid-template-columns: minmax(0, 1fr); } .aside { position: static; } }
+/* Stacked under the narrative, the side cards sit beside each other while there is room. */
+@media (max-width: 1180px) {
+  .detail-grid { grid-template-columns: minmax(0, 1fr); }
+  .aside { position: static; flex-direction: row; flex-wrap: wrap; }
+  .aside > * { flex: 1 1 240px; }
+}
+@media (max-width: 700px) {
+  .incident-actions { align-items: stretch; width: 100%; max-width: none; text-align: left; }
+}
 .facts { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 7px 14px; font-size: 12.5px; }
 .facts dt { color: var(--text-muted); white-space: nowrap; }
 .facts dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
@@ -475,7 +566,7 @@ details[open] > summary { margin-bottom: 8px; }
 
 .decision { margin-top: 20px; padding: 16px 18px; border: 1px solid var(--warning); background: var(--warning-wash); border-radius: var(--radius); }
 .decision h3 { margin-top: 0; }
-.decision-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 12px 0; }
+.decision-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 12px; margin: 12px 0; }
 .decision-fields label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
 .decision-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 

@@ -39,7 +39,7 @@ export default function Audit() {
           <Empty>{data.length === 0 ? "Nothing recorded yet." : "No entry matches that filter."}</Empty>
         ) : (
           <div className="table-scroll">
-            <table className="table">
+            <table className="table table-cards">
               <thead>
                 <tr>
                   <th>Time</th>
@@ -53,8 +53,8 @@ export default function Audit() {
               <tbody>
                 {shown.map((entry) => (
                   <tr key={entry.audit_id}>
-                    <td className="nowrap muted">{dateTime(entry.created_at)}</td>
-                    <td className="nowrap">{titleCase(entry.actor.replace(/^human:/, "human · "))}</td>
+                    <td className="cell-meta nowrap muted">{dateTime(entry.created_at)}</td>
+                    <td className="cell-meta nowrap">{titleCase(entry.actor.replace(/^human:/, "human · "))}</td>
                     <td>
                       <code>{entry.action}</code>
                     </td>
@@ -64,7 +64,7 @@ export default function Audit() {
                     <td>
                       <Badge value={entry.result} />
                     </td>
-                    <td>
+                    <td className="cell-wide">
                       <span className="audit-details">
                         {Object.entries(entry.details)
                           .filter(([key]) => key !== "incident_id")

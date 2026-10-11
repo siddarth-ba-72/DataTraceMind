@@ -3,12 +3,14 @@
 // Two series on one axis. Where the pipeline is correct the lines coincide, so
 // days on which they differ get a marker: the gap is the story, and it must be
 // findable without comparing two overlapping strokes.
-import { useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { compactMoney, money, shortDate, signedMoney } from "../format.js";
 
-// Close to the size the chart is drawn at, so axis text keeps its type size.
+// The chart is drawn at the width it is given, so axis text keeps its type
+// size on a phone as on a desktop. This is the width assumed until measured.
 const WIDTH = 1040;
-const HEIGHT = 270;
+// Below this there is no room for a tooltip beside the pointer.
+const NARROW = 520;
 const MARGIN = { top: 16, right: 24, bottom: 30, left: 58 };
 const SERIES = [
   { key: "source_net", label: "Source-derived (contract)", className: "series-1" },
@@ -22,37 +24,58 @@ function niceCeiling(value) {
   return step * magnitude;
 }
 
+// The width of an element, kept current as the layout changes. Measured
+// before the first paint, so the chart is never shown at the wrong scale.
+function useWidth(fallback) {
+  const [node, setNode] = useState(null);
+  const [width, setWidth] = useState(fallback);
+  useLayoutEffect(() => {
+    if (!node) return undefined;
+    const measure = () => setWidth(node.clientWidth || fallback);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [node, fallback]);
+  return [setNode, width];
+}
+
 export default function RevenueChart({ daily, currency, tolerance = 0.01 }) {
   const rows = useMemo(() => daily.filter((d) => d.currency === currency), [daily, currency]);
   const [hover, setHover] = useState(null);
   const [showTable, setShowTable] = useState(false);
+  const [chart, width] = useWidth(WIDTH);
   const frame = useRef(null);
 
   if (rows.length < 2) return <p className="empty">Not enough days of data to chart yet.</p>;
 
-  const innerWidth = WIDTH - MARGIN.left - MARGIN.right;
-  const innerHeight = HEIGHT - MARGIN.top - MARGIN.bottom;
+  const narrow = width < NARROW;
+  const height = narrow ? 220 : 270;
+  const innerWidth = width - MARGIN.left - MARGIN.right;
+  const innerHeight = height - MARGIN.top - MARGIN.bottom;
   const top = niceCeiling(Math.max(...rows.flatMap((r) => [r.source_net, r.analytics_net])));
   const x = (index) => MARGIN.left + (index / (rows.length - 1)) * innerWidth;
   const y = (value) => MARGIN.top + innerHeight - (Math.max(value, 0) / top) * innerHeight;
   const path = (key) => rows.map((r, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(r[key]).toFixed(1)}`).join(" ");
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((share) => share * top);
-  const labelEvery = Math.ceil(rows.length / 8);
+  // As many date labels as fit without touching, and never more than eight.
+  const labelEvery = Math.ceil(rows.length / Math.max(2, Math.min(8, Math.floor(innerWidth / 64))));
+  const last = rows.length - 1;
   const differs = (row) => Math.abs(row.analytics_net - row.source_net) > tolerance;
   const mismatched = rows.filter(differs).length;
 
   function onMove(event) {
     const box = frame.current.getBoundingClientRect();
-    const position = ((event.clientX - box.left) / box.width) * WIDTH;
+    const position = ((event.clientX - box.left) / box.width) * width;
     const index = Math.round(((position - MARGIN.left) / innerWidth) * (rows.length - 1));
     setHover(Math.min(rows.length - 1, Math.max(0, index)));
   }
 
   const active = hover === null ? null : rows[hover];
-  const tooltipLeft = hover === null ? 0 : (x(hover) / WIDTH) * 100;
+  const tooltipLeft = hover === null ? 0 : (x(hover) / width) * 100;
 
   return (
-    <div className="chart">
+    <div className="chart" ref={chart}>
       <div className="chart-legend">
         {SERIES.map((series) => (
           <span key={series.key} className="legend-item">
@@ -97,15 +120,18 @@ export default function RevenueChart({ daily, currency, tolerance = 0.01 }) {
       ) : (
         <div className="chart-frame" ref={frame}>
           <svg
-            viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+            viewBox={`0 0 ${width} ${height}`}
             role="img"
             aria-label={`Daily net revenue in ${currency}, source-derived versus analytics. ${mismatched} of ${rows.length} days differ.`}
+            onPointerDown={onMove}
             onPointerMove={onMove}
-            onPointerLeave={() => setHover(null)}
+            // A finger leaves the chart when it lifts; the reading it chose stays up.
+            onPointerLeave={(event) => event.pointerType === "mouse" && setHover(null)}
+            onPointerCancel={() => setHover(null)}
           >
             {ticks.map((tick) => (
               <g key={tick}>
-                <line className="grid" x1={MARGIN.left} x2={WIDTH - MARGIN.right} y1={y(tick)} y2={y(tick)} />
+                <line className="grid" x1={MARGIN.left} x2={width - MARGIN.right} y1={y(tick)} y2={y(tick)} />
                 <text className="axis" x={MARGIN.left - 8} y={y(tick)} textAnchor="end" dominantBaseline="middle">
                   {compactMoney(tick, currency)}
                 </text>
@@ -113,8 +139,9 @@ export default function RevenueChart({ daily, currency, tolerance = 0.01 }) {
             ))}
             {rows.map(
               (row, index) =>
-                (index % labelEvery === 0 || index === rows.length - 1) && (
-                  <text key={row.date} className="axis" x={x(index)} y={HEIGHT - 8} textAnchor="middle">
+                // The last day is always labelled; a regular label too close to it gives way.
+                (index === last || (index % labelEvery === 0 && last - index >= labelEvery / 2)) && (
+                  <text key={row.date} className="axis" x={x(index)} y={height - 8} textAnchor="middle">
                     {shortDate(row.date)}
                   </text>
                 ),
@@ -135,7 +162,10 @@ export default function RevenueChart({ daily, currency, tolerance = 0.01 }) {
               ))}
           </svg>
           {active && (
-            <div className={`tooltip ${tooltipLeft > 60 ? "tooltip-left" : ""}`} style={{ left: `${tooltipLeft}%` }}>
+            <div
+              className={`tooltip ${narrow ? "tooltip-above" : tooltipLeft > 60 ? "tooltip-left" : ""}`}
+              style={narrow ? undefined : { left: `${tooltipLeft}%` }}
+            >
               <div className="tooltip-title">{shortDate(active.date)}</div>
               {SERIES.map((series) => (
                 <div key={series.key} className="tooltip-row">
