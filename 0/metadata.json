@@ -1,0 +1,267 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4RMK3RA9VPPJ3TF9426HKYF",
+  "session_id": "f54388b4-2756-4b6d-ac6e-8bcbb4584341",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-12T18:04:27.230772Z",
+  "branch": "simpler-arch",
+  "checkpoints_count": 12,
+  "save_step_count": 12,
+  "files_touched": [
+    ".env.example",
+    ".github/workflows/backend-deploy.yml",
+    ".github/workflows/ci.yml",
+    "README.md",
+    "datatracemind/agents/roles.py",
+    "datatracemind/agents/runner.py",
+    "datatracemind/api/app.py",
+    "datatracemind/config.py",
+    "datatracemind/db.py",
+    "datatracemind/evaluation.py",
+    "datatracemind/llm/__init__.py",
+    "datatracemind/llm/codex.py",
+    "datatracemind/llm/gemini.py",
+    "datatracemind/llm/inprocess.py",
+    "datatracemind/llm/litellm.py",
+    "datatracemind/observability/__init__.py",
+    "datatracemind/observability/tracing.py",
+    "datatracemind/orchestration/state.py",
+    "datatracemind/orchestration/supervisor.py",
+    "datatracemind/orchestration/workflow.py",
+    "datatracemind/repair/executor.py",
+    "datatracemind/repair/validation.py",
+    "docker-compose.yml",
+    "etl/pipeline.py",
+    "frontend/src/components/Incident.jsx",
+    "frontend/vercel.json",
+    "infra/postgres/dtm.sql",
+    "requirements.txt",
+    "start-dtm-service.sh",
+    "tests/conftest.py",
+    "tests/test_codex_adapter.py",
+    "tests/test_gemini_adapter.py",
+    "tests/test_pipeline.py",
+    "tests/test_workflow.py"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "turn_id": "47974539ca09",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 358,
+    "cache_creation_tokens": 534211,
+    "cache_read_tokens": 56373199,
+    "output_tokens": 283699,
+    "api_call_count": 165
+  },
+  "session_metrics": {
+    "turn_count": 12
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-12T18:04:27.148658Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 859,
+    "human_removed": 496,
+    "total_committed": 669,
+    "total_lines_changed": 1355,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 208,
+      "agent_lines_removed": 427
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1370,
+      "agent_lines_removed": 722
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 165,
+      "user_lines_removed": 740,
+      "agent_lines_added": 1388,
+      "agent_lines_removed": 727,
+      "user_added_per_file": {
+        "README.md": 1,
+        "datatracemind/agents/roles.py": 10,
+        "datatracemind/agents/runner.py": 54,
+        "datatracemind/evaluation.py": 1,
+        "datatracemind/llm/codex.py": 6,
+        "datatracemind/llm/gemini.py": 2,
+        "datatracemind/llm/inprocess.py": 12,
+        "datatracemind/llm/litellm.py": 5,
+        "datatracemind/orchestration/supervisor.py": 8,
+        "datatracemind/repair/executor.py": 49,
+        "datatracemind/repair/validation.py": 10,
+        "frontend/src/components/Incident.jsx": 1,
+        "infra/postgres/dtm.sql": 4,
+        "tests/test_codex_adapter.py": 2
+      },
+      "user_removed_per_file": {
+        ".env.example": 4,
+        "README.md": 6,
+        "datatracemind/agents/roles.py": 15,
+        "datatracemind/agents/runner.py": 58,
+        "datatracemind/api/app.py": 3,
+        "datatracemind/evaluation.py": 9,
+        "datatracemind/llm/codex.py": 82,
+        "datatracemind/llm/gemini.py": 41,
+        "datatracemind/llm/inprocess.py": 25,
+        "datatracemind/llm/litellm.py": 59,
+        "datatracemind/observability/__init__.py": 25,
+        "datatracemind/observability/tracing.py": 291,
+        "datatracemind/orchestration/state.py": 1,
+        "datatracemind/orchestration/supervisor.py": 34,
+        "datatracemind/repair/executor.py": 56,
+        "datatracemind/repair/validation.py": 16,
+        "frontend/src/components/Incident.jsx": 5,
+        "infra/postgres/dtm.sql": 5,
+        "requirements.txt": 1,
+        "tests/conftest.py": 2,
+        "tests/test_codex_adapter.py": 2
+      }
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 14,
+      "user_lines_removed": 66,
+      "agent_lines_added": 1531,
+      "agent_lines_removed": 1393,
+      "user_added_per_file": {
+        "datatracemind/llm/gemini.py": 2,
+        "datatracemind/llm/inprocess.py": 12
+      },
+      "user_removed_per_file": {
+        "datatracemind/llm/gemini.py": 41,
+        "datatracemind/llm/inprocess.py": 25
+      }
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 14,
+      "user_lines_removed": 66,
+      "agent_lines_added": 1531,
+      "agent_lines_removed": 1393,
+      "user_added_per_file": {
+        "datatracemind/llm/gemini.py": 2,
+        "datatracemind/llm/inprocess.py": 12
+      },
+      "user_removed_per_file": {
+        "datatracemind/llm/gemini.py": 41,
+        "datatracemind/llm/inprocess.py": 25
+      }
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 14,
+      "user_lines_removed": 66,
+      "agent_lines_added": 1531,
+      "agent_lines_removed": 1393,
+      "user_added_per_file": {
+        "datatracemind/llm/gemini.py": 2,
+        "datatracemind/llm/inprocess.py": 12
+      },
+      "user_removed_per_file": {
+        "datatracemind/llm/gemini.py": 41,
+        "datatracemind/llm/inprocess.py": 25
+      }
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 14,
+      "user_lines_removed": 66,
+      "agent_lines_added": 1531,
+      "agent_lines_removed": 1393,
+      "user_added_per_file": {
+        "datatracemind/llm/gemini.py": 2,
+        "datatracemind/llm/inprocess.py": 12
+      },
+      "user_removed_per_file": {
+        "datatracemind/llm/gemini.py": 41,
+        "datatracemind/llm/inprocess.py": 25
+      }
+    },
+    {
+      "checkpoint_number": 9,
+      "user_lines_added": 14,
+      "user_lines_removed": 66,
+      "agent_lines_added": 1531,
+      "agent_lines_removed": 1393,
+      "user_added_per_file": {
+        "datatracemind/llm/gemini.py": 2,
+        "datatracemind/llm/inprocess.py": 12
+      },
+      "user_removed_per_file": {
+        "datatracemind/llm/gemini.py": 41,
+        "datatracemind/llm/inprocess.py": 25
+      }
+    },
+    {
+      "checkpoint_number": 10,
+      "user_lines_added": 245,
+      "user_lines_removed": 71,
+      "agent_lines_added": 1531,
+      "agent_lines_removed": 1393,
+      "user_added_per_file": {
+        "datatracemind/llm/gemini.py": 66,
+        "datatracemind/llm/inprocess.py": 12,
+        "evaluation/results/20261012-231616-DS-01-v3.json": 90,
+        "tests/test_gemini_adapter.py": 77
+      },
+      "user_removed_per_file": {
+        "datatracemind/llm/gemini.py": 46,
+        "datatracemind/llm/inprocess.py": 25
+      }
+    },
+    {
+      "checkpoint_number": 11,
+      "user_lines_added": 245,
+      "user_lines_removed": 71,
+      "agent_lines_added": 1531,
+      "agent_lines_removed": 1393,
+      "user_added_per_file": {
+        "datatracemind/llm/gemini.py": 66,
+        "datatracemind/llm/inprocess.py": 12,
+        "evaluation/results/20261012-231616-DS-01-v3.json": 90,
+        "tests/test_gemini_adapter.py": 77
+      },
+      "user_removed_per_file": {
+        "datatracemind/llm/gemini.py": 46,
+        "datatracemind/llm/inprocess.py": 25
+      }
+    },
+    {
+      "checkpoint_number": 12,
+      "user_lines_added": 245,
+      "user_lines_removed": 71,
+      "agent_lines_added": 1531,
+      "agent_lines_removed": 1393,
+      "user_added_per_file": {
+        "datatracemind/llm/gemini.py": 66,
+        "datatracemind/llm/inprocess.py": 12,
+        "evaluation/results/20261012-231616-DS-01-v3.json": 90,
+        "tests/test_gemini_adapter.py": 77
+      },
+      "user_removed_per_file": {
+        "datatracemind/llm/gemini.py": 46,
+        "datatracemind/llm/inprocess.py": 25
+      }
+    }
+  ]
+}

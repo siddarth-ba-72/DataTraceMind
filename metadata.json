@@ -1,0 +1,59 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4RMK3RA9VPPJ3TF9426HKYF",
+  "strategy": "manual-commit",
+  "branch": "simpler-arch",
+  "checkpoints_count": 12,
+  "files_touched": [
+    ".env.example",
+    ".github/workflows/backend-deploy.yml",
+    ".github/workflows/ci.yml",
+    "README.md",
+    "datatracemind/agents/roles.py",
+    "datatracemind/agents/runner.py",
+    "datatracemind/api/app.py",
+    "datatracemind/config.py",
+    "datatracemind/db.py",
+    "datatracemind/evaluation.py",
+    "datatracemind/llm/__init__.py",
+    "datatracemind/llm/codex.py",
+    "datatracemind/llm/gemini.py",
+    "datatracemind/llm/inprocess.py",
+    "datatracemind/llm/litellm.py",
+    "datatracemind/observability/__init__.py",
+    "datatracemind/observability/tracing.py",
+    "datatracemind/orchestration/state.py",
+    "datatracemind/orchestration/supervisor.py",
+    "datatracemind/orchestration/workflow.py",
+    "datatracemind/repair/executor.py",
+    "datatracemind/repair/validation.py",
+    "docker-compose.yml",
+    "etl/pipeline.py",
+    "frontend/src/components/Incident.jsx",
+    "frontend/vercel.json",
+    "infra/postgres/dtm.sql",
+    "requirements.txt",
+    "start-dtm-service.sh",
+    "tests/conftest.py",
+    "tests/test_codex_adapter.py",
+    "tests/test_gemini_adapter.py",
+    "tests/test_pipeline.py",
+    "tests/test_workflow.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 358,
+    "cache_creation_tokens": 534211,
+    "cache_read_tokens": 56373199,
+    "output_tokens": 283699,
+    "api_call_count": 165
+  }
+}
