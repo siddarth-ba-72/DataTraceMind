@@ -6,6 +6,7 @@ pydantic==2.14.0
 PyYAML==6.0.3
 mcp==2.3.0
 neatlogs==1.4.26
+openai==3.29.0
 python-dotenv==1.2.4
 
 # Tests

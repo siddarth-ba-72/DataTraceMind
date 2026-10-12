@@ -57,7 +57,7 @@ MCP_SERVER_SCRIPT = REPO_ROOT / "datatracemind" / "tools" / "mcp_server.py"
 # Read-only settings the tool server may inherit from this process.
 FORWARDED_ENV = ("DTM_READONLY_DATABASE_URL", "DTM_POSTGRES_PORT")
 # Never handed to the Codex process.
-WITHHELD_ENV = ("NEATLOGS_API_KEY", "DTM_DATABASE_URL", "DTM_DEMO_ACCESS_CODE")
+WITHHELD_ENV = ("NEATLOGS_API_KEY", "LITELLM_API_KEY", "DTM_DATABASE_URL", "DTM_DEMO_ACCESS_CODE")
 
 # USD per million tokens (input, cached input, output), API list prices
 # published 10 October 2026. ChatGPT Plus is flat-rate, so a figure computed
