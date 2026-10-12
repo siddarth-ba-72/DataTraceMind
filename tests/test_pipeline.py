@@ -90,6 +90,10 @@ def test_readonly_role_cannot_write_or_read_application_state(baseline):
         conn.execute("SET default_transaction_read_only = off")
         conn.execute("COMMIT")
         conn.execute("DELETE FROM oltp.refunds")
+    with db.connect(readonly=True) as conn:
+        # Both are defaults of the role, so they hold however the connection is made.
+        assert conn.execute("SHOW default_transaction_read_only").fetchone()["default_transaction_read_only"] == "on"
+        assert conn.execute("SHOW statement_timeout").fetchone()["statement_timeout"] == "5s"
 
 
 def test_pipeline_lock_is_reentrant_and_excludes_other_sessions(baseline):

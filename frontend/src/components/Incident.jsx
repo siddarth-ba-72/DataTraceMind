@@ -252,7 +252,7 @@ function Runs({ runs }) {
     <Card
       id="runs"
       title="Investigation runs"
-      subtitle="One row per run; each is one neatlogs trace. Cost is an estimate at API list prices (the model runs on a flat-rate plan)."
+      subtitle="One row per run. Cost is an estimate at list prices, not a charge."
       flush
     >
       <div className="table-scroll">
@@ -270,7 +270,6 @@ function Runs({ runs }) {
               <th className="right">Input tokens</th>
               <th className="right">Output tokens</th>
               <th className="right">Est. cost</th>
-              <th>Trace ID</th>
             </tr>
           </thead>
           <tbody>
@@ -295,9 +294,6 @@ function Runs({ runs }) {
                 </td>
                 <td className="right">{number(run.output_tokens)}</td>
                 <td className="right">${Number(run.est_cost_usd).toFixed(3)}</td>
-                <td>
-                  <code>{run.trace_id ? `${run.trace_id.slice(0, 12)}…` : "not traced"}</code>
-                </td>
               </tr>
             ))}
           </tbody>

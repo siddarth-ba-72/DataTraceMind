@@ -29,6 +29,11 @@ STAGING_SCHEMA = "staging"
 SOURCE_SCHEMA = "oltp"
 READONLY_SCHEMAS = (SOURCE_SCHEMA, ANALYTICS_SCHEMA, "pipeline")
 READONLY_STATEMENT_TIMEOUT_MS = 5000
+# Session defaults of the read-only role.
+READONLY_ROLE_SETTINGS = {
+    "default_transaction_read_only": "on",
+    "statement_timeout": str(READONLY_STATEMENT_TIMEOUT_MS),
+}
 
 
 def to_jsonable(value: Any) -> Any:
@@ -65,16 +70,10 @@ def connect(*, readonly: bool = False, autocommit: bool = False) -> Iterator[psy
     if _writes_forbidden and not readonly:
         raise PermissionError("this process may only open read-only database connections")
     settings = get_settings()
-    if readonly:
-        url = settings.readonly_database_url
-        options = (
-            "-c default_transaction_read_only=on "
-            f"-c statement_timeout={READONLY_STATEMENT_TIMEOUT_MS}"
-        )
-    else:
-        url = settings.database_url
-        options = None
-    with psycopg.connect(url, row_factory=dict_row, autocommit=autocommit, options=options) as conn:
+    url = settings.readonly_database_url if readonly else settings.database_url
+    if url is None:
+        raise RuntimeError("DTM_DATABASE_URL is not set; put the PostgreSQL connection string in .env")
+    with psycopg.connect(url, row_factory=dict_row, autocommit=autocommit) as conn:
         yield conn
 
 
@@ -118,6 +117,12 @@ def _ensure_readonly_role(conn: psycopg.Connection) -> None:
     conn.execute(
         sql.SQL("{} ROLE {} LOGIN PASSWORD {}").format(verb, sql.Identifier(role), sql.Literal(password))
     )
+    # Set on the role rather than on each connection: a hosted connection
+    # pooler does not pass startup options through to the server.
+    for name, value in READONLY_ROLE_SETTINGS.items():
+        conn.execute(
+            sql.SQL("ALTER ROLE {} SET {} = {}").format(sql.Identifier(role), sql.Identifier(name), sql.Literal(value))
+        )
     for schema in READONLY_SCHEMAS:
         conn.execute(
             sql.SQL("GRANT USAGE ON SCHEMA {s} TO {r}; GRANT SELECT ON ALL TABLES IN SCHEMA {s} TO {r}").format(

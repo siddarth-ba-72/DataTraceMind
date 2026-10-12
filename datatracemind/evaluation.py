@@ -31,7 +31,6 @@ from datatracemind import db, demo, store
 from datatracemind.config import REPO_ROOT
 from datatracemind.llm import get_provider
 from datatracemind.monitoring.summary import metrics_summary
-from datatracemind.observability import delivery_problems, init_tracing, shutdown_tracing
 from datatracemind.orchestration import supervisor
 from datatracemind.repair import executor
 from datatracemind.repair.executor import ApplyRefused
@@ -192,14 +191,7 @@ def main() -> None:
     parser.add_argument("--approve-as", metavar="NAME", help="record an approval under this name, then verify recovery")
     args = parser.parse_args()
 
-    traced = init_tracing(tags=["evaluation", args.scenario_id])
-    try:
-        result = run(args.scenario_id, args.approve_as)
-    finally:
-        # A script that exits without this can lose its trace.
-        shutdown_tracing()
-    result["traced"] = traced
-    result["trace_delivery_problems"] = delivery_problems() if traced else None
+    result = run(args.scenario_id, args.approve_as)
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")

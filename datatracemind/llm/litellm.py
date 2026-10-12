@@ -13,18 +13,16 @@ The model sees only the role's allowed tools; it has no shell, files, or web.
 
 from __future__ import annotations
 
-import inspect
 import json
 import logging
 import os
-import re
 import threading
 import time
 from typing import Any
 
 import openai
 from openai import OpenAI
-from pydantic import BaseModel, ValidationError, create_model
+from pydantic import ValidationError
 
 from datatracemind.config import get_settings
 from datatracemind.llm.base import (
@@ -39,10 +37,15 @@ from datatracemind.llm.base import (
     TurnTimeout,
     UsageLimitReached,
 )
+from datatracemind.llm.inprocess import (
+    SYSTEM_PROMPT,
+    call_tool,
+    clean_schema,
+    extract_json,
+    parameters_schema,
+)
 from datatracemind.models import TokenUsage, ToolCallRecord
-from datatracemind.observability import SpanHandle, span
-from datatracemind.tools.investigation import ToolError
-from datatracemind.tools.registry import TOOLS, ToolSpec
+from datatracemind.tools.registry import TOOLS
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +56,6 @@ DEFAULT_BASE_URL = "https://litellm.vision.aivar.app/v1"
 # Changing the model makes earlier runs incomparable: record the change in
 # hackathon.md and bump the workflow version.
 DEFAULT_MODEL = "claude-sonnet-4.6"
-PROVIDER_LABEL = "neatlogs-litellm"
 
 # USD per million tokens (input, cached input, output), list prices of the
 # underlying models. The gateway is provided for the hackathon, so a figure
@@ -77,14 +79,6 @@ MAX_OUTPUT_TOKENS = 8000
 TOOL_RESULT_CHARS = 30000
 AVAILABILITY_TTL_S = 60.0
 
-SYSTEM_PROMPT = """\
-You are one role in DataTraceMind, a read-only investigation of an order-to-revenue data pipeline.
-Use the tools to gather facts; never invent a tool result. When you have what you need, reply with
-a single JSON object, and nothing else, that fits this JSON Schema:
-
-{schema}"""
-
-
 def estimate_cost_usd(model: str, usage: TokenUsage) -> float:
     """Cost of a turn at list prices. `input_tokens` includes cached ones."""
     fresh, cached, output = PRICES_PER_MILLION.get(
@@ -98,33 +92,6 @@ def estimate_cost_usd(model: str, usage: TokenUsage) -> float:
     ) / 1_000_000
 
 
-def _clean_schema(node: Any) -> Any:
-    if isinstance(node, dict):
-        return {
-            key: _clean_schema(value) for key, value in node.items() if key != "title"
-        }
-    if isinstance(node, list):
-        return [_clean_schema(item) for item in node]
-    return node
-
-
-def _arguments_model(spec: ToolSpec) -> type[BaseModel]:
-    """A Pydantic model of the tool function's parameters."""
-    fields: dict[str, Any] = {}
-    for name, param in inspect.signature(spec.fn).parameters.items():
-        annotation = (
-            param.annotation if param.annotation is not inspect.Parameter.empty else Any
-        )
-        default = param.default if param.default is not inspect.Parameter.empty else ...
-        fields[name] = (annotation, default)
-    return create_model(f"{spec.name}_arguments", **fields)
-
-
-_ARGUMENT_MODELS: dict[str, type[BaseModel]] = {
-    name: _arguments_model(spec) for name, spec in TOOLS.items()
-}
-
-
 def tool_definition(name: str) -> dict:
     """The tool as an OpenAI function definition."""
     spec = TOOLS[name]
@@ -133,50 +100,9 @@ def tool_definition(name: str) -> dict:
         "function": {
             "name": name,
             "description": spec.description,
-            "parameters": _clean_schema(_ARGUMENT_MODELS[name].model_json_schema()),
+            "parameters": parameters_schema(name),
         },
     }
-
-
-def run_tool(name: str, raw_arguments: str | None) -> tuple[dict, Any, str | None]:
-    """Run one tool call. Returns (arguments, result, error); error is None on success.
-
-    A tool's own refusals reach the model so it can correct the call. The
-    text of any other exception is withheld, which keeps database errors and
-    stack details out of the model's context.
-    """
-    try:
-        arguments = json.loads(raw_arguments or "{}")
-    except json.JSONDecodeError as exc:
-        return {}, None, f"arguments are not valid JSON: {exc}"
-    if not isinstance(arguments, dict):
-        return {}, None, "arguments must be a JSON object"
-    if name not in TOOLS:
-        return arguments, None, f"unknown tool {name}"
-    try:
-        parsed = _ARGUMENT_MODELS[name].model_validate(arguments)
-    except ValidationError as exc:
-        return arguments, None, f"invalid arguments: {exc}"
-    try:
-        result = TOOLS[name].fn(**parsed.model_dump())
-    except ToolError as exc:
-        return arguments, None, str(exc)
-    except Exception:
-        logger.exception("tool %s failed", name)
-        return arguments, None, f"Error executing tool {name}: internal error"
-    return arguments, result, None
-
-
-def extract_json(text: str) -> str:
-    """The JSON object in a final message, without prose or code fences around it."""
-    text = text.strip()
-    fenced = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
-    if fenced:
-        text = fenced.group(1).strip()
-    start, end = text.find("{"), text.rfind("}")
-    if start != -1 and end > start:
-        return text[start : end + 1]
-    return text
 
 
 def _classify(exc: Exception) -> type[LLMError]:
@@ -240,26 +166,12 @@ class LiteLLMProvider:
             raise ValueError(f"role {call.role} names unknown tools: {unknown}")
         if not os.environ.get(API_KEY_ENV):
             raise NotAuthenticated(f"{call.role}: {API_KEY_ENV} is not set")
-        attributes = {
-            "neatlogs.llm.provider": PROVIDER_LABEL,
-            "neatlogs.llm.model_name": self.model,
-            "llm.model_name": self.model,
-            "litellm.role": call.role,
-            "litellm.allowed_tools": list(call.allowed_tools),
-            "litellm.required_tools": list(call.required_tools),
-        }
-        with span(
-            f"litellm.chat {call.role}", "LLM", input=call.prompt, **attributes
-        ) as turn_span:
-            return self._run(call, turn_span)
-
-    def _run(self, call: RoleCall, turn_span: SpanHandle) -> RoleResult:
         started = time.monotonic()
         deadline = started + call.timeout_s
         tool_calls: list[ToolCallRecord] = []
         usage = TokenUsage()
         client = self._get_client()
-        schema = json.dumps(_clean_schema(call.output_model.model_json_schema()))
+        schema = json.dumps(clean_schema(call.output_model.model_json_schema()))
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": SYSTEM_PROMPT.format(schema=schema)},
             {"role": "user", "content": call.prompt},
@@ -268,7 +180,6 @@ class LiteLLMProvider:
         corrections = 0
 
         def fail(kind: type[LLMError], message: str) -> LLMError:
-            self._record(turn_span, usage, tool_calls, started)
             return kind(f"{call.role}: {message}", tool_calls=tool_calls, usage=usage,
                         duration_s=time.monotonic() - started)  # fmt: skip
 
@@ -329,9 +240,7 @@ class LiteLLMProvider:
                             }
                         )
                         continue
-                    record = self._call_tool(
-                        tc.id, tc.function.name, tc.function.arguments
-                    )
+                    record = self._call_tool(tc.function.name, tc.function.arguments)
                     tool_calls.append(record)
                     content = (
                         json.dumps(record.result, default=str)
@@ -374,13 +283,11 @@ class LiteLLMProvider:
                     RequiredToolMissing,
                     f"required tool call(s) did not succeed: {missing}",
                 )
-            duration = self._record(turn_span, usage, tool_calls, started)
-            turn_span.set_output(output.model_dump())
             return RoleResult(
                 output=output,
                 tool_calls=tool_calls,
                 usage=usage,
-                duration_s=duration,
+                duration_s=time.monotonic() - started,
                 model=self.model,
                 reasoning_effort="default",
                 est_cost_usd=estimate_cost_usd(self.model, usage),
@@ -388,35 +295,6 @@ class LiteLLMProvider:
         raise fail(
             InvalidOutput, f"no final answer after {MAX_MODEL_REQUESTS} model requests"
         )
-
-    def _record(
-        self,
-        turn_span: SpanHandle,
-        usage: TokenUsage,
-        tool_calls: list[ToolCallRecord],
-        started: float,
-    ) -> float:
-        duration = time.monotonic() - started
-        turn_span.record_usage(
-            provider=PROVIDER_LABEL,
-            model=self.model,
-            input_tokens=usage.input_tokens,
-            cached_input_tokens=usage.cached_input_tokens,
-            output_tokens=usage.output_tokens,
-            reasoning_tokens=usage.reasoning_output_tokens,
-            cost_usd=estimate_cost_usd(self.model, usage),
-        )
-        turn_span.set(
-            **{
-                "litellm.duration_s": round(duration, 2),
-                "litellm.tool_calls": len(tool_calls),
-                "litellm.failed_tool_calls": sum(
-                    1 for c in tool_calls if c.status == "failed"
-                ),
-                "litellm.cost_basis": "estimate at the underlying models' list prices",
-            }
-        )
-        return duration
 
     @staticmethod
     def _add_usage(usage: TokenUsage, reported: Any) -> None:
@@ -434,40 +312,9 @@ class LiteLLMProvider:
         )
 
     @staticmethod
-    def _call_tool(
-        call_id: str, name: str, raw_arguments: str | None
-    ) -> ToolCallRecord:
-        spec = TOOLS[name]
-        began = time.monotonic()
-        with span(
-            name,
-            "MCP_TOOL",
-            input=raw_arguments,
-            **{
-                "neatlogs.mcp_tool.name": name,
-                "neatlogs.mcp_tool.description": spec.description,
-                "neatlogs.mcp_tool.call_id": call_id,
-            },
-        ) as handle:
-            arguments, result, error = run_tool(name, raw_arguments)
-            record = ToolCallRecord(
-                tool=name,
-                arguments=arguments,
-                result=result,
-                status="completed" if error is None else "failed",
-                error=error,
-                duration_s=round(time.monotonic() - began, 3),
-            )
-            handle.set(
-                **{
-                    "neatlogs.mcp_tool.arguments": arguments,
-                    "mcp.tool.duration_s": record.duration_s,
-                }
-            )
-            if error is None:
-                handle.set(
-                    **{"output.value": result, "neatlogs.mcp_tool.output": result}
-                )
-            else:
-                handle.fail(error)
-        return record
+    def _call_tool(name: str, raw_arguments: str | None) -> ToolCallRecord:
+        try:
+            arguments = json.loads(raw_arguments or "{}")
+        except json.JSONDecodeError as exc:
+            return call_tool(name, {}, rejected=f"arguments are not valid JSON: {exc}")
+        return call_tool(name, arguments)

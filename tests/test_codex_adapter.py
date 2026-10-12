@@ -86,7 +86,7 @@ def fake_codex(tmp_path: Path, monkeypatch) -> Path:
     argv_file = tmp_path / "argv.json"
     monkeypatch.setenv("PATH", f"{executable.parent}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.setenv("FAKE_CODEX_ARGV", str(argv_file))
-    monkeypatch.setenv("NEATLOGS_API_KEY", "must-not-reach-codex")
+    monkeypatch.setenv("GEMINI_API_KEY", "must-not-reach-codex")
     return argv_file
 
 
@@ -140,7 +140,10 @@ def test_command_carries_every_required_safety_setting(fake_codex, monkeypatch):
     assert "danger" not in joined and "bypass" not in joined and "workspace-write" not in joined
     assert recorded["stdin_closed"] is True
     # Secrets the model process has no use for are withheld from it.
-    assert "NEATLOGS_API_KEY" not in recorded["env"] and "DTM_DATABASE_URL" not in recorded["env"]
+    assert "GEMINI_API_KEY" not in recorded["env"] and "DTM_DATABASE_URL" not in recorded["env"]
+    # The tool server is handed the read-only connection, and nothing else.
+    assert 'mcp_servers.dtm.env_vars=["DTM_READONLY_DATABASE_URL"]' in argv
+    assert "DTM_READONLY_DATABASE_URL" in recorded["env"]
     workdir = Path(argv[argv.index("-C") + 1])
     assert not workdir.exists()  # an empty directory, removed after the turn
 

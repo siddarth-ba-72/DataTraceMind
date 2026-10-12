@@ -17,7 +17,6 @@ from datatracemind import store
 from datatracemind.db import connect
 from datatracemind.llm.base import InvalidOutput, LLMError, RoleCall, RoleResult
 from datatracemind.models import ToolCallRecord
-from datatracemind.observability import span
 from datatracemind.orchestration.routing import MAX_ROLE_ATTEMPTS
 from datatracemind.orchestration.state import RunContext
 from datatracemind.tools.registry import TOOLS
@@ -96,66 +95,63 @@ def run_role(
     _event(ctx, role, "running", goal)
     evidence_ids: list[str] = []
     feedback = ""
-    with span(role, "AGENT", input=goal, **{"agent.name": role, "neatlogs.agent.name": role}) as agent_span:
-        for attempt in range(1, MAX_ROLE_ATTEMPTS + 1):
-            call = RoleCall(
-                role=role,
-                prompt=prompt + feedback,
-                output_model=output_model,
-                allowed_tools=allowed_tools,
-                required_tools=required_tools,
+    for attempt in range(1, MAX_ROLE_ATTEMPTS + 1):
+        call = RoleCall(
+            role=role,
+            prompt=prompt + feedback,
+            output_model=output_model,
+            allowed_tools=allowed_tools,
+            required_tools=required_tools,
+        )
+        try:
+            result: RoleResult = ctx.provider.run_turn(call)
+        except LLMError as exc:
+            evidence_ids += file_tool_calls(ctx, role, exc.tool_calls)
+            _account(
+                ctx,
+                usage=exc.usage,
+                tool_calls=exc.tool_calls,
+                cost=ctx.provider.estimate_cost(exc.usage),
+                retry=attempt > 1,
+            )
+            failure = exc
+        else:
+            evidence_ids += file_tool_calls(ctx, role, result.tool_calls)
+            _account(
+                ctx, usage=result.usage, tool_calls=result.tool_calls, cost=result.est_cost_usd, retry=attempt > 1
             )
             try:
-                result: RoleResult = ctx.provider.run_turn(call)
-            except LLMError as exc:
-                evidence_ids += file_tool_calls(ctx, role, exc.tool_calls)
-                _account(
-                    ctx,
-                    usage=exc.usage,
-                    tool_calls=exc.tool_calls,
-                    cost=ctx.provider.estimate_cost(exc.usage),
-                    retry=attempt > 1,
-                )
+                if validate is not None:
+                    validate(result.output)
+            except InvalidOutput as exc:
                 failure = exc
             else:
-                evidence_ids += file_tool_calls(ctx, role, result.tool_calls)
-                _account(
-                    ctx, usage=result.usage, tool_calls=result.tool_calls, cost=result.est_cost_usd, retry=attempt > 1
-                )
-                try:
-                    if validate is not None:
-                        validate(result.output)
-                except InvalidOutput as exc:
-                    failure = exc
-                else:
-                    _event(
-                        ctx, role, "completed", f"{goal} — done in {result.duration_s:.0f}s",
-                        payload={
-                            "attempt": attempt,
-                            "tool_calls": [c.tool for c in result.tool_calls],
-                            "evidence_ids": evidence_ids,
-                            "input_tokens": result.usage.input_tokens,
-                            "cached_input_tokens": result.usage.cached_input_tokens,
-                            "output_tokens": result.usage.output_tokens,
-                            "est_cost_usd": round(result.est_cost_usd, 4),
-                            "duration_s": round(result.duration_s, 1),
-                            "output": result.output.model_dump(),
-                        },
-                    )  # fmt: skip
-                    agent_span.set(**{"agent.attempts": attempt})
-                    agent_span.set_output(result.output.model_dump())
-                    return result.output, evidence_ids
+                _event(
+                    ctx, role, "completed", f"{goal} — done in {result.duration_s:.0f}s",
+                    payload={
+                        "attempt": attempt,
+                        "tool_calls": [c.tool for c in result.tool_calls],
+                        "evidence_ids": evidence_ids,
+                        "input_tokens": result.usage.input_tokens,
+                        "cached_input_tokens": result.usage.cached_input_tokens,
+                        "output_tokens": result.usage.output_tokens,
+                        "est_cost_usd": round(result.est_cost_usd, 4),
+                        "duration_s": round(result.duration_s, 1),
+                        "output": result.output.model_dump(),
+                    },
+                )  # fmt: skip
+                return result.output, evidence_ids
 
-            will_retry = failure.retryable and attempt < MAX_ROLE_ATTEMPTS
-            _event(
-                ctx, role, "failed", f"{type(failure).__name__}: {failure}",
-                payload={"attempt": attempt, "will_retry": will_retry},
-            )  # fmt: skip
-            logger.warning("%s attempt %s failed: %s", role, attempt, failure)
-            if not will_retry:
-                raise failure
-            feedback = (
-                "\n\nA PREVIOUS ATTEMPT AT THIS TASK WAS REJECTED\n"
-                f"Reason: {type(failure).__name__}: {failure}\nCorrect this in your answer.\n"
-            )
+        will_retry = failure.retryable and attempt < MAX_ROLE_ATTEMPTS
+        _event(
+            ctx, role, "failed", f"{type(failure).__name__}: {failure}",
+            payload={"attempt": attempt, "will_retry": will_retry},
+        )  # fmt: skip
+        logger.warning("%s attempt %s failed: %s", role, attempt, failure)
+        if not will_retry:
+            raise failure
+        feedback = (
+            "\n\nA PREVIOUS ATTEMPT AT THIS TASK WAS REJECTED\n"
+            f"Reason: {type(failure).__name__}: {failure}\nCorrect this in your answer.\n"
+        )
     raise AssertionError("unreachable")  # the loop either returns or raises

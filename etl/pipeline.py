@@ -66,15 +66,21 @@ def pipeline_lock() -> Iterator[None]:
 
     Scheduled runs, staging validation, fault injection, repair, and reset all
     take it. It is re-entrant, and it holds across processes as well as
-    threads (a PostgreSQL advisory lock on its own connection), so the API's
-    worker and a script such as the evaluator can share one database.
+    threads (a PostgreSQL advisory lock, held by a transaction on its own
+    connection), so the API's worker and a script such as the evaluator can
+    share one database.
     """
     global _lock_holder, _lock_depth
     with _THREAD_LOCK:
         if _lock_depth == 0:
             holder = ExitStack()
-            conn = holder.enter_context(connect(autocommit=True))
-            conn.execute("SELECT pg_advisory_lock(%s)", (_ADVISORY_LOCK_KEY,))
+            # The lock belongs to an open transaction, not to the session: a
+            # connection pooler may hand the session's server connection to
+            # another client between statements, but never inside a transaction.
+            conn = holder.enter_context(connect())
+            # This transaction idles for as long as the lock is held, by design.
+            conn.execute("SET LOCAL idle_in_transaction_session_timeout = 0")
+            conn.execute("SELECT pg_advisory_xact_lock(%s)", (_ADVISORY_LOCK_KEY,))
             _lock_holder = holder
         _lock_depth += 1
         try:
@@ -82,7 +88,7 @@ def pipeline_lock() -> Iterator[None]:
         finally:
             _lock_depth -= 1
             if _lock_depth == 0 and _lock_holder is not None:
-                # Closing the session releases the advisory lock.
+                # Ending the transaction releases the advisory lock.
                 _lock_holder.close()
                 _lock_holder = None
 

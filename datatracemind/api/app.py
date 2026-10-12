@@ -22,7 +22,6 @@ from datatracemind import db, demo, store
 from datatracemind.config import REPO_ROOT, get_settings
 from datatracemind.llm import get_provider
 from datatracemind.monitoring.summary import live_transactions, metrics_summary
-from datatracemind.observability import init_tracing, shutdown_tracing
 from datatracemind.orchestration import supervisor
 from datatracemind.repair import approval, executor, patch_store, validation
 from datatracemind.workers import EtlWorker
@@ -77,7 +76,6 @@ class TrafficBatch(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    init_tracing()
     db.ensure_schema()
     try:
         transform_store.get_active()
@@ -89,7 +87,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
     etl_worker.stop()
     demo.traffic.stop()
-    shutdown_tracing()
 
 
 def require_demo_access(x_demo_access_code: str | None = Header(default=None)) -> None:
@@ -313,11 +310,14 @@ def create_app() -> FastAPI:
     def _refused(request: Request, exc: supervisor.InvestigationRefused) -> JSONResponse:
         return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
 
-    # The built dashboard, when present, is served from the same origin as
-    # the API. Mounted last so that /api routes take precedence.
+    # The built frontend is served from the same origin as the API, so one
+    # service is the whole deployment. Mounted last so that /api routes take
+    # precedence.
     dashboard = REPO_ROOT / "frontend" / "dist"
     if (dashboard / "index.html").is_file():
         app.mount("/", StaticFiles(directory=dashboard, html=True), name="dashboard")
+    else:
+        logger.warning("frontend/dist is missing, so only /api is served; run `npm run build` in frontend/")
     return app
 
 

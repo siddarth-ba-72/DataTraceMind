@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+
 import pytest
 
 from datatracemind import db, demo
@@ -54,6 +56,18 @@ def test_ds01_runs_from_detection_to_awaiting_approval(ds01):
     # Nothing was applied: the demo environment is still broken and still flagged.
     assert metrics_summary()["trust"] == "under_investigation"
     assert metrics_summary()["reconciliation"]["reconciled"] is False
+
+
+def test_the_two_investigators_run_side_by_side(ds01):
+    together = threading.Barrier(2, timeout=10)
+
+    class Meeting(ScriptedProvider):
+        def run_turn(self, call):
+            if call.role in ("source_investigator", "pipeline_investigator"):
+                together.wait()  # breaks unless both turns are in flight at once
+            return super().run_turn(call)
+
+    assert run_investigation(ds01, provider=Meeting()) == "awaiting_approval"
 
 
 def test_run_record_carries_the_numbers_for_before_after_comparison(ds01):

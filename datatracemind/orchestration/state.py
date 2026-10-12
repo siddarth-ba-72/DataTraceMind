@@ -32,7 +32,6 @@ class IncidentState(TypedDict, total=False):
     approval: dict[str, Any] | None
     post_fix_result: dict[str, Any] | None
     errors: list[dict[str, Any]]
-    trace_ref: dict[str, Any] | None
 
 
 @dataclass

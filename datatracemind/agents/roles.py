@@ -14,7 +14,6 @@ from datatracemind.agents.runner import file_tool_calls, run_role
 from datatracemind.db import connect
 from datatracemind.llm.base import InvalidOutput
 from datatracemind.models import InvestigationReport, RepairPlan, RootCauseReport, ToolCallRecord
-from datatracemind.observability import span
 from datatracemind.orchestration.routing import (
     ALL_INVESTIGATION_TOOLS,
     MAX_TOOL_CALLS_PER_TURN,
@@ -91,20 +90,16 @@ def lookup_contracts(ctx: RunContext, plan: DiagnosticPlan) -> list[str]:
     role = "contract_agent"
     missing: list[str] = []
     calls: list[ToolCallRecord] = []
-    with span(role, "AGENT", input=[f"{kind}:{name}" for kind, name in plan.contracts], **{"agent.name": role}):
-        for kind, name in plan.contracts:
-            tool = "get_metric_contract" if kind == "metric" else "get_data_contract"
-            arguments = {"metric_name" if kind == "metric" else "dataset_name": name}
-            with span(tool, "TOOL", input=arguments, **{"neatlogs.tool.name": tool}) as tool_span:
-                try:
-                    result = TOOLS[tool].fn(**arguments)
-                except ToolError as exc:
-                    tool_span.fail(str(exc))
-                    missing.append(f"{kind} contract '{name}'")
-                    calls.append(ToolCallRecord(tool=tool, arguments=arguments, status="failed", error=str(exc)))
-                else:
-                    tool_span.set_output({"path": result["path"]})
-                    calls.append(ToolCallRecord(tool=tool, arguments=arguments, result=result, status="completed"))
+    for kind, name in plan.contracts:
+        tool = "get_metric_contract" if kind == "metric" else "get_data_contract"
+        arguments = {"metric_name" if kind == "metric" else "dataset_name": name}
+        try:
+            result = TOOLS[tool].fn(**arguments)
+        except ToolError as exc:
+            missing.append(f"{kind} contract '{name}'")
+            calls.append(ToolCallRecord(tool=tool, arguments=arguments, status="failed", error=str(exc)))
+        else:
+            calls.append(ToolCallRecord(tool=tool, arguments=arguments, result=result, status="completed"))
     evidence_ids = file_tool_calls(ctx, role, calls)
     with connect() as conn:
         store.add_event(
