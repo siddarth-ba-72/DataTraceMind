@@ -23,7 +23,7 @@ evidence are in [hackathon.md](hackathon.md).
    model decides that something is wrong.
 5. A supervisor runs the agent roles: a source-data investigator and a
    pipeline investigator in parallel, a contract lookup, a root-cause analyst,
-   and a repair agent. Each model-backed role is one Codex turn with its own
+   and a repair agent. Each model-backed role is one model turn with its own
    tool allow-list and output schema.
 6. The repair is run in a staging schema against regression fixtures and every
    quality check, and the load is replayed to prove a retry changes nothing.
@@ -34,13 +34,16 @@ evidence are in [hackathon.md](hackathon.md).
 
 ## Run it
 
-Requirements: Docker, Python 3.13, Node.js 22 or newer, and the
-[Codex CLI](https://developers.openai.com/codex/cli) signed in (`codex login`)
-or `CODEX_API_KEY` set. Without model credentials everything except
-"Investigate" still works; that button is refused with a message saying why.
+Requirements: Docker, Python 3.13, Node.js 22 or newer, and a
+`LITELLM_API_KEY` for the neatlogs LiteLLM gateway
+(<https://neatlogs.com/hackathon/models>) in `.env`. The model defaults to
+`claude-sonnet-4.6`; set `LITELLM_MODEL` to use another gateway model. The
+earlier Codex CLI provider is still available with `DTM_LLM_PROVIDER=codex`.
+Without model credentials everything except "Investigate" still works; that
+button is refused with a message saying why.
 
 ```sh
-cp .env.example .env                  # add NEATLOGS_API_KEY to trace agent runs
+cp .env.example .env                  # add LITELLM_API_KEY, and NEATLOGS_API_KEY to trace runs
 docker compose up -d postgres
 python3.13 -m venv .venv && .venv/bin/pip install -r requirements.txt
 (cd frontend && npm install && npm run build)
@@ -61,7 +64,7 @@ Demo path: in the **Scenario Lab**, pick a scenario, read its briefing, and
 press **Inject fault**. Follow **Open INC-0001** to the console, then
 **Investigate → review the repair → Approve and apply**. Back in the lab,
 **Reset to baseline** returns to the clean state. An investigation takes about
-a minute and four Codex turns.
+a minute and four model turns.
 
 Live traffic is optional. **Start traffic** in the lab keeps simulated
 customers writing orders, payments, and refunds to the source at a chosen rate
@@ -103,11 +106,12 @@ this), no prompt contains it, and an incident never names its scenario.
   that can `SELECT` from the source, the analytics target, and the
   transformation history, and nothing else. No tool accepts SQL; queries are
   templates with typed parameters.
-- **Codex has no shell.** Each turn runs with the shell and web search
-  disabled and a read-only sandbox, so the MCP tools are its only reach.
-- **Evidence comes from tool results.** The adapter reads the tool calls from
-  Codex's event stream and fails a turn unless the role's required calls
-  succeeded. The model's description of a result is never stored as evidence.
+- **The model has no shell.** It is offered only the role's allowed
+  investigation tools (the Codex provider additionally runs with the shell and
+  web search disabled and a read-only sandbox).
+- **Evidence comes from tool results.** The adapter runs the tool calls itself
+  (or, with Codex, reads them from its event stream) and fails a turn unless
+  the role's required calls succeeded. The model's description of a result is never stored as evidence.
 - **A repair is data, not code.** It is a new version of one allowlisted file,
   `etl/transforms/order_revenue.yaml`, and is accepted only if it parses
   against a strict schema and changes a handful of lines.
@@ -156,7 +160,7 @@ datatracemind/
   monitoring/     detection and dashboard read models
   scenarios/      fault scenarios, their briefings, and their answer keys
   tools/          read-only investigation tools and the MCP server
-  llm/            provider contract and the Codex adapter
+  llm/            provider contract, the LiteLLM gateway and Codex adapters
   agents/         role prompts and the role runner
   orchestration/  supervisor state machine and routing
   repair/         proposals, staging validation, approval, executor
@@ -169,7 +173,7 @@ tests/
 ## Hackathon tools
 
 - **neatlogs** traces every investigation: one trace per run, a span per role,
-  per Codex turn (with token usage and estimated cost), and per tool call.
+  per model turn (with token usage and estimated cost), and per tool call.
   Approval, apply, and verification are traced as guardrail spans in the same
   session.
 - **Entire** captures the coding-agent sessions behind each commit.
