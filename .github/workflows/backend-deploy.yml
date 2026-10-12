@@ -11,6 +11,8 @@
 #   secret    EC2_SSH_KEY   private key (.pem) of the instance's key pair
 #   variable  EC2_HOST      public DNS name or IP address of the instance
 #   variable  EC2_USER      login user; optional, defaults to ec2-user
+#   secret    LITELLM_API_KEY  neatlogs LiteLLM gateway key; written into the
+#                              host's .env on every deploy when set
 #
 # The host must already hold ~/dtm_build/.env, and its security group must
 # allow SSH (port 22) from GitHub-hosted runners.
@@ -143,6 +145,24 @@ jobs:
         run: |
           ssh dtm 'mkdir -p dtm_build'
           scp dtm-backend.tar.gz start-dtm-service.sh dtm:dtm_build/
+
+      # Keys kept as repository secrets are written into the host's .env, so
+      # they need not be copied there by hand. A secret that is not set leaves
+      # the .env line as it is. Values go over stdin, never on a command line.
+      - name: Update settings on the host
+        env:
+          LITELLM_API_KEY: ${{ secrets.LITELLM_API_KEY }}
+        run: |
+          for name in LITELLM_API_KEY; do
+            value="${!name}"
+            [[ -n "$value" ]] || { echo "Secret $name is not set; keeping the host's value."; continue; }
+            printf '%s' "$value" | ssh dtm "set -euo pipefail; umask 077
+              value=\$(cat)
+              touch dtm_build/.env && chmod 600 dtm_build/.env
+              { grep -v '^$name=' dtm_build/.env || true; printf '%s=%s\n' '$name' \"\$value\"; } > dtm_build/.env.new
+              mv dtm_build/.env.new dtm_build/.env"
+            echo "Set $name in dtm_build/.env."
+          done
 
       # A login shell, so the API inherits the same PATH (uv, the Codex CLI)
       # as when the script is run by hand. The script exits non-zero unless
