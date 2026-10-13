@@ -2,7 +2,7 @@
 // anomaly -> evidence -> root cause -> patch -> staging proof -> human approval
 // -> verified recovery.
 import { useState } from "react";
-import { api, useAction, usePoll } from "../api.js";
+import { api, useAction, useSnapshot } from "../api.js";
 import { between, clock, dateTime, money, number, signedMoney, since, titleCase } from "../format.js";
 import { Badge, Button, Card, Empty, ErrorNote, Facts, Json, PageHead, Segmented } from "./common.jsx";
 import { Icon } from "./icons.jsx";
@@ -27,7 +27,7 @@ const OFF_PATH = new Set(["validation_failed", "application_failed", "rejected",
 // Statuses in which the server is moving the incident on by itself.
 const WORKING = new Set(["investigating", "validating", "applying", "verifying"]);
 // A resolved incident never changes again, so it is not polled.
-const pollEvery = (incident) => (incident?.status === "resolved" ? null : WORKING.has(incident?.status) ? 3000 : 5000);
+const pollEvery = ({ incident }) => (incident?.status === "resolved" ? null : WORKING.has(incident?.status) ? 3000 : 5000);
 
 function Lifecycle({ incident }) {
   const visited = new Set(incident.events.filter((e) => e.event_type === "lifecycle").map((e) => e.status));
@@ -374,9 +374,11 @@ function Aside({ incident }) {
 }
 
 function IncidentDetail({ incidentId, agent, onChanged }) {
-  const { data: incident, error, refresh } = usePoll(`/incidents/${incidentId}`, pollEvery);
+  const { data, error, refresh } = useSnapshot(["incident"], { incident: incidentId, interval: pollEvery });
+  const { incident } = data;
   const action = useAction();
   const [showTools, setShowTools] = useState(true);
+  if (incident === null) return <ErrorNote message={`Incident ${incidentId} not found.`} />;
   if (error && !incident) return <ErrorNote message={error.message} />;
   if (!incident) return <Empty>Loading {incidentId}…</Empty>;
 
@@ -574,9 +576,7 @@ function IncidentList({ incidents, onSelect }) {
   );
 }
 
-export default function Incidents({ selectedId, onSelect, agent, onChanged }) {
-  // The list is not on screen while one incident is open.
-  const { data: incidents } = usePoll(selectedId ? null : "/incidents", 5000);
+export default function Incidents({ incidents, selectedId, onSelect, agent, onChanged }) {
   if (selectedId) return <IncidentDetail key={selectedId} incidentId={selectedId} agent={agent} onChanged={onChanged} />;
   if (!incidents) return <Empty>Loading incidents…</Empty>;
   return <IncidentList incidents={incidents} onSelect={onSelect} />;

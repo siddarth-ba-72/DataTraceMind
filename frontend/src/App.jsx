@@ -1,7 +1,7 @@
 // The incident console: is the data trustworthy, and if not, what is being done about it.
 // Injecting faults and driving the demo environment live in a separate page, the Scenario Lab.
 import { useEffect, useState } from "react";
-import { getAccessCode, setAccessCode, usePoll } from "./api.js";
+import { getAccessCode, setAccessCode, useSnapshot } from "./api.js";
 import { ago } from "./format.js";
 import Audit from "./components/Audit.jsx";
 import { AccessCode, Badge, ErrorNote, TRUST_TEXT } from "./components/common.jsx";
@@ -15,6 +15,10 @@ const PAGES = [
   { key: "incidents", label: "Incidents", icon: "alert" },
   { key: "audit", label: "Audit log", icon: "list" },
 ];
+// What each page shows besides the trust state and the agent card, which are on all of them.
+const PAGE_PARTS = { overview: ["runs", "live", "traffic"], incidents: ["incidents"], audit: ["audit"] };
+const OUTDATED_API =
+  "The DataTraceMind server is running an older version than this page. Restart the server to pick up the current backend.";
 
 // The view lives in the URL hash (#/incidents/INC-0001) so a reload or a
 // shared link lands on the same page.
@@ -51,8 +55,10 @@ function AgentCard({ agent }) {
 export default function App() {
   const [route, setRoute] = useState(readRoute);
   const [code, setCode] = useState(getAccessCode);
-  const metrics = usePoll("/metrics/summary", 5000);
-  const agent = usePoll("/agent/status", 5000);
+  // An open incident fetches itself, and the list is not on screen behind it.
+  const pageParts = route.page === "incidents" && route.id ? [] : PAGE_PARTS[route.page];
+  const snapshot = useSnapshot(["metrics", "agent", ...pageParts]);
+  const { metrics, agent } = snapshot.data;
 
   useEffect(() => {
     // The lab used to be a tab of this page; old links to it still work.
@@ -66,14 +72,10 @@ export default function App() {
     window.location.hash = id ? `/${page}/${id}` : `/${page}`;
     window.scrollTo(0, 0);
   };
-  const refreshAll = () => {
-    metrics.refresh();
-    agent.refresh();
-  };
 
-  const activeIncident = metrics.data?.active_incident;
-  const trust = metrics.data?.trust;
-  const pipeline = metrics.data?.pipeline;
+  const activeIncident = metrics?.active_incident;
+  const trust = metrics?.trust;
+  const pipeline = metrics?.pipeline;
   const current = PAGES.find((p) => p.key === route.page);
 
   return (
@@ -119,7 +121,7 @@ export default function App() {
         <p className="nav-hint">Inject faults, run live traffic, and reset the environment. Opens in its own tab.</p>
 
         <div className="sidebar-foot">
-          <AgentCard agent={agent.data} />
+          <AgentCard agent={agent} />
         </div>
       </aside>
 
@@ -147,7 +149,7 @@ export default function App() {
               </span>
             )}
             {trust && <Badge value={trust}>{TRUST_TEXT[trust]}</Badge>}
-            {agent.data?.access_code_required && (
+            {agent?.access_code_required && (
               <AccessCode
                 value={code}
                 onChange={(value) => {
@@ -160,14 +162,32 @@ export default function App() {
         </header>
 
         <main className="content">
-          {metrics.error && !metrics.data && (
-            <ErrorNote message={`Cannot reach the DataTraceMind API: ${metrics.error.message}`} />
+          {snapshot.error && !metrics && (
+            <ErrorNote
+              message={
+                snapshot.error.status === 404 ? OUTDATED_API : `Cannot reach the DataTraceMind API: ${snapshot.error.message}`
+              }
+            />
           )}
-          {route.page === "overview" && <Overview metrics={metrics.data} onOpenIncident={(id) => go("incidents", id)} />}
+          {route.page === "overview" && (
+            <Overview
+              metrics={metrics}
+              runs={snapshot.data.runs}
+              traffic={snapshot.data.traffic}
+              live={snapshot.data.live}
+              onOpenIncident={(id) => go("incidents", id)}
+            />
+          )}
           {route.page === "incidents" && (
-            <Incidents selectedId={route.id} onSelect={(id) => go("incidents", id)} agent={agent.data} onChanged={refreshAll} />
+            <Incidents
+              incidents={snapshot.data.incidents}
+              selectedId={route.id}
+              onSelect={(id) => go("incidents", id)}
+              agent={agent}
+              onChanged={snapshot.refresh}
+            />
           )}
-          {route.page === "audit" && <Audit />}
+          {route.page === "audit" && <Audit entries={snapshot.data.audit} />}
         </main>
       </div>
     </div>

@@ -1,6 +1,5 @@
 // Audit timeline: who did what, to what, and with what result.
 import { useState } from "react";
-import { usePoll } from "../api.js";
 import { dateTime, titleCase } from "../format.js";
 import { Badge, Card, Empty, PageHead } from "./common.jsx";
 import { Icon } from "./icons.jsx";
@@ -11,11 +10,10 @@ function matches(entry, query) {
   return haystack.toLowerCase().includes(query.toLowerCase());
 }
 
-export default function Audit() {
-  const { data } = usePoll("/audit?limit=300", 5000);
+export default function Audit({ entries }) {
   const [query, setQuery] = useState("");
-  if (!data) return <Empty>Loading the audit log…</Empty>;
-  const shown = data.filter((entry) => matches(entry, query.trim()));
+  if (!entries) return <Empty>Loading the audit log…</Empty>;
+  const shown = entries.filter((entry) => matches(entry, query.trim()));
   return (
     <div className="stack">
       <PageHead
@@ -24,7 +22,7 @@ export default function Audit() {
         actions={
           <>
             <span className="muted">
-              {shown.length === data.length ? `${data.length} entries` : `${shown.length} of ${data.length} entries`}
+              {shown.length === entries.length ? `${entries.length} entries` : `${shown.length} of ${entries.length} entries`}
             </span>
             <label className="search">
               <Icon name="search" size={14} />
@@ -36,7 +34,7 @@ export default function Audit() {
       />
       <Card flush>
         {shown.length === 0 ? (
-          <Empty>{data.length === 0 ? "Nothing recorded yet." : "No entry matches that filter."}</Empty>
+          <Empty>{entries.length === 0 ? "Nothing recorded yet." : "No entry matches that filter."}</Empty>
         ) : (
           <div className="table-scroll">
             <table className="table table-cards">
