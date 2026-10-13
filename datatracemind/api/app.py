@@ -7,22 +7,23 @@ status codes.
 
 from __future__ import annotations
 
+import functools
 import hmac
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Literal
 
-from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from datatracemind import db, demo, store
+from datatracemind.api.snapshot import SnapshotCache
 from datatracemind.config import REPO_ROOT, get_settings
 from datatracemind.llm import get_provider
 from datatracemind.monitoring.summary import live_transactions, metrics_summary
-from datatracemind.observability import init_tracing, shutdown_tracing
 from datatracemind.orchestration import supervisor
 from datatracemind.repair import approval, executor, patch_store, validation
 from datatracemind.workers import EtlWorker
@@ -42,6 +43,9 @@ def _auto_investigate(incident_id: str) -> None:
 
 
 etl_worker = EtlWorker(on_incident=_auto_investigate)
+# How old an answer in a page's snapshot may be when nothing was changed through the API.
+SNAPSHOT_TTL_S = 2.0
+snapshots = SnapshotCache(ttl_s=SNAPSHOT_TTL_S)
 
 # A name, not free text: it is stored in the transformation history, which
 # agents can read through get_etl_code, so it must not be able to carry
@@ -77,7 +81,7 @@ class TrafficBatch(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    init_tracing()
+    snapshots.invalidate()
     db.ensure_schema()
     try:
         transform_store.get_active()
@@ -89,7 +93,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
     etl_worker.stop()
     demo.traffic.stop()
-    shutdown_tracing()
 
 
 def require_demo_access(x_demo_access_code: str | None = Header(default=None)) -> None:
@@ -292,10 +295,72 @@ def incident_verify(incident_id: str) -> dict:
     return proposal["post_fix_result"]
 
 
+# --- Page snapshots ----------------------------------------------------------
+
+
+def _incident_or_none(incident_id: str) -> dict | None:
+    try:
+        return store.get_incident(incident_id)
+    except store.IncidentNotFound:
+        return None
+
+
+# What the pages show, by the name they ask for it, with the row limits they use.
+# These read the database, so their answers are shared for SNAPSHOT_TTL_S.
+_SNAPSHOT_PARTS: dict[str, Callable[[], object]] = {
+    "metrics": metrics_summary,
+    "runs": lambda: pipeline_runs(limit=8),
+    "live": lambda: transactions_live(limit=12),
+    "incidents": incidents,
+    "audit": lambda: audit_log(limit=300),
+    "scenarios": demo.lab_status,
+}
+# These are held in memory, so they are read for every response.
+_SNAPSHOT_LIVE_PARTS: dict[str, Callable[[], object]] = {
+    "agent": agent_status,
+    "traffic": demo.traffic.status,
+}
+
+
+@router.get("/snapshot")
+def snapshot(parts: str, incident: str | None = None) -> dict:
+    """Everything a page shows, in one response.
+
+    `parts` is a comma-separated list of names from the tables above, plus
+    `incident` for the detail of the incident whose ID is given (null when
+    there is no such incident). The pages poll this instead of one route for
+    each panel.
+    """
+    names = list(dict.fromkeys(name for name in parts.split(",") if name))
+    unknown = [n for n in names if n not in _SNAPSHOT_PARTS and n not in _SNAPSHOT_LIVE_PARTS and n != "incident"]
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"unknown snapshot parts: {', '.join(unknown)}")
+    if "incident" in names and not incident:
+        raise HTTPException(status_code=422, detail="the incident part needs an incident ID")
+    pending = {name: snapshots.get(name, _SNAPSHOT_PARTS[name]) for name in names if name in _SNAPSHOT_PARTS}
+    if "incident" in names:
+        pending["incident"] = snapshots.get(f"incident:{incident}", functools.partial(_incident_or_none, incident))
+    answer = {name: future.result() for name, future in pending.items()}
+    # Read last, so that they are as current as the response.
+    answer.update({name: _SNAPSHOT_LIVE_PARTS[name]() for name in names if name in _SNAPSHOT_LIVE_PARTS})
+    return answer
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="DataTraceMind", lifespan=lifespan)
     app.include_router(router)
     app.include_router(guarded)
+
+    @app.middleware("http")
+    async def _fresh_snapshots_after_a_change(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        # Emptied before the response leaves, so the page's next snapshot cannot predate its own change.
+        try:
+            return await call_next(request)
+        finally:
+            if request.method not in ("GET", "HEAD", "OPTIONS"):
+                snapshots.invalidate()
 
     @app.exception_handler(store.IncidentNotFound)
     def _not_found(request: Request, exc: store.IncidentNotFound) -> JSONResponse:
@@ -313,11 +378,14 @@ def create_app() -> FastAPI:
     def _refused(request: Request, exc: supervisor.InvestigationRefused) -> JSONResponse:
         return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
 
-    # The built dashboard, when present, is served from the same origin as
-    # the API. Mounted last so that /api routes take precedence.
+    # The built frontend is served from the same origin as the API, so one
+    # service is the whole deployment. Mounted last so that /api routes take
+    # precedence.
     dashboard = REPO_ROOT / "frontend" / "dist"
     if (dashboard / "index.html").is_file():
         app.mount("/", StaticFiles(directory=dashboard, html=True), name="dashboard")
+    else:
+        logger.warning("frontend/dist is missing, so only /api is served; run `npm run build` in frontend/")
     return app
 
 

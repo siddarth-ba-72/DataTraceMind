@@ -1,11 +1,15 @@
 # Runtime
-fastapi==0.143.0
+# 0.141.1 is the newest fastapi that installs next to google-adk 2.11:
+# later ones need OpenTelemetry 1.44+, which that ADK release excludes.
+fastapi==0.141.1
 uvicorn[standard]==0.54.0
 psycopg[binary]==3.3.6
+psycopg-pool==3.3.3
 pydantic==2.14.0
 PyYAML==6.0.3
 mcp==2.3.0
-neatlogs==1.4.26
+google-adk==2.11.0
+google-genai==2.29.0
 openai==3.29.0
 python-dotenv==1.2.4
 

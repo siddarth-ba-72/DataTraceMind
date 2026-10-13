@@ -7,6 +7,7 @@ from collections.abc import Iterator
 import pytest
 from fastapi.testclient import TestClient
 
+from datatracemind.api import app as api
 from datatracemind.api.app import app
 from datatracemind.config import get_settings
 
@@ -27,6 +28,50 @@ def test_healthy_baseline_is_visible(client):
     runs = client.get("/api/pipeline/runs").json()
     assert runs[0]["status"] == "SUCCESS" and runs[0]["checks"]
     assert client.get("/api/incidents").json() == []
+
+
+def test_snapshot_returns_the_parts_a_page_asks_for(client):
+    snapshot = client.get("/api/snapshot?parts=metrics,agent,traffic,runs,live,incidents,audit,scenarios").json()
+    assert snapshot["metrics"]["trust"] == "trustworthy"
+    assert snapshot["agent"] == client.get("/api/agent/status").json()
+    assert snapshot["traffic"] == client.get("/api/demo/traffic").json()
+    assert snapshot["runs"] == client.get("/api/pipeline/runs?limit=8").json()
+    assert snapshot["live"] == client.get("/api/transactions/live?limit=12").json()
+    assert snapshot["incidents"] == []
+    assert snapshot["audit"] == client.get("/api/audit?limit=300").json()
+    assert snapshot["scenarios"] == client.get("/api/scenarios").json()
+    assert set(client.get("/api/snapshot?parts=traffic,agent").json()) == {"traffic", "agent"}
+    assert client.get("/api/snapshot?parts=metrics,nonsense").status_code == 422
+    assert client.get("/api/snapshot?parts=incident").status_code == 422
+    assert client.get("/api/snapshot?parts=incident&incident=INC-9999").json() == {"incident": None}
+
+
+def test_snapshot_is_shared_between_pages_but_never_predates_a_change(client, monkeypatch):
+    reads = []
+    list_incidents = api._SNAPSHOT_PARTS["incidents"]
+    monkeypatch.setitem(api._SNAPSHOT_PARTS, "incidents", lambda: reads.append(1) or list_incidents())
+    assert client.get("/api/snapshot?parts=incidents").json() == {"incidents": []}
+    assert client.get("/api/snapshot?parts=incidents,traffic").json()["incidents"] == []
+    assert len(reads) == 1  # the second page got the first one's answer
+
+    incident_id = client.post("/api/scenarios/DS-01/inject").json()["incident_id"]
+    snapshot = client.get(f"/api/snapshot?parts=incidents,metrics,incident&incident={incident_id}").json()
+    assert [row["incident_id"] for row in snapshot["incidents"]] == [incident_id]
+    assert snapshot["incident"] == client.get(f"/api/incidents/{incident_id}").json()
+    assert snapshot["metrics"]["trust"] == "under_investigation"
+    assert len(reads) == 2
+
+    # A refused change empties the cache as well: it may have got part of the way.
+    assert client.post("/api/scenarios/DS-03/inject").status_code == 409
+    client.get("/api/snapshot?parts=incidents")
+    assert len(reads) == 3
+
+    # Changes made outside the API (the pipeline worker, an agent) appear when the answer expires.
+    client.get("/api/snapshot?parts=incidents")
+    assert len(reads) == 3
+    monkeypatch.setattr(api.snapshots, "ttl_s", 0)
+    client.get("/api/snapshot?parts=incidents")
+    assert len(reads) == 4
 
 
 def test_inject_opens_an_incident_and_an_alert(client):

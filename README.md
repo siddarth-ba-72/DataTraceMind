@@ -21,10 +21,11 @@ evidence are in [hackathon.md](hackathon.md).
    one known fault.
 4. Deterministic quality checks fail and the monitor opens an incident. No
    model decides that something is wrong.
-5. A supervisor runs the agent roles: a source-data investigator and a
-   pipeline investigator in parallel, a contract lookup, a root-cause analyst,
-   and a repair agent. Each model-backed role is one model turn with its own
-   tool allow-list and output schema.
+5. A supervisor runs the agent roles as a Google ADK workflow graph: a
+   contract lookup, a source-data investigator and a pipeline investigator in
+   parallel, a root-cause analyst, and a repair agent. Each model-backed role
+   is one model turn, an ADK agent on Gemini with its own tool allow-list and
+   output schema.
 6. The repair is run in a staging schema against regression fixtures and every
    quality check, and the load is replayed to prove a retry changes nothing.
 7. A person reviews the evidence, diff, and staging result, then approves or
@@ -34,23 +35,30 @@ evidence are in [hackathon.md](hackathon.md).
 
 ## Run it
 
-Requirements: Docker, Python 3.13, Node.js 22 or newer, and a
-`LITELLM_API_KEY` for the neatlogs LiteLLM gateway
-(<https://neatlogs.com/hackathon/models>) in `.env`. The model defaults to
-`claude-sonnet-4.6`; set `LITELLM_MODEL` to use another gateway model. The
-earlier Codex CLI provider is still available with `DTM_LLM_PROVIDER=codex`.
+Requirements: a PostgreSQL database, Python 3.13, Node.js 22 or newer, and a
+`GEMINI_API_KEY` (<https://aistudio.google.com/apikey>) in `.env`. The model
+defaults to `gemini-3.5-flash-lite`, which a free-tier key can run; set
+`GEMINI_MODEL=gemini-3.8-flash` for the stronger model on a paid key. The
+earlier providers are still available: `DTM_LLM_PROVIDER=litellm` for the
+neatlogs LiteLLM gateway and `DTM_LLM_PROVIDER=codex` for the Codex CLI.
 Without model credentials everything except "Investigate" still works; that
 button is refused with a message saying why.
 
+The database is any PostgreSQL server, hosted or local: put its connection
+string in `.env` as `DTM_DATABASE_URL`. On first start the app creates its
+schemas, the seed data, and a read-only role named `dtm_readonly` for the
+investigation tools, so the role in the connection string must be allowed to
+create roles.
+
 ```sh
-cp .env.example .env                  # add LITELLM_API_KEY, and NEATLOGS_API_KEY to trace runs
-docker compose up -d postgres
+cp .env.example .env                  # add DTM_DATABASE_URL and GEMINI_API_KEY
 python3.13 -m venv .venv && .venv/bin/pip install -r requirements.txt
 (cd frontend && npm install && npm run build)
 .venv/bin/uvicorn datatracemind.api.app:app --port 8000
 ```
 
-The first start seeds a deterministic baseline. There are two pages:
+The first start seeds a deterministic baseline. The same process serves the
+API and the built frontend, which has two pages:
 
 | Page | URL | What it is for |
 |---|---|---|
@@ -74,6 +82,31 @@ reset pauses it so each run starts from the same data.
 
 For frontend development, `npm run dev` in `frontend/` serves both pages on
 port 5173 (`/` and `/lab/`) and proxies `/api` to port 8000.
+
+## Deploy
+
+There is one service to deploy. FastAPI answers `/api` and serves the built
+frontend at `/` and `/lab/`; the database is whichever PostgreSQL
+`DTM_DATABASE_URL` names.
+
+- **Build:** `pip install -r requirements.txt && (cd frontend && npm ci && npm run build)`
+- **Start:** `uvicorn datatracemind.api.app:app --host 0.0.0.0 --port $PORT`
+- **Health check:** `GET /api/health`
+- **Settings:** `DTM_DATABASE_URL`, `GEMINI_API_KEY`, and `DTM_DEMO_ACCESS_CODE`
+  (see [.env.example](.env.example) for the rest)
+
+Run exactly one process and keep it running. The ETL worker, the traffic
+stream, and running investigations are threads inside it, so a second worker
+or a host that starts the app per request would each have their own.
+
+Run it in the same region as the database. The app makes many small queries,
+so its speed follows the network distance: measured from India against a
+database in the US, a statement took about a quarter of a second, opening a
+connection about a second and a half, and the first start (which seeds the
+baseline) about eight minutes. The app keeps up to 20 connections open and
+reuses them; only the investigation tools, which run as the read-only role,
+open one per call. A pooled connection string, such as the one Neon gives by
+default, works.
 
 ## Scenarios
 
@@ -109,9 +142,11 @@ this), no prompt contains it, and an incident never names its scenario.
 - **The model has no shell.** It is offered only the role's allowed
   investigation tools (the Codex provider additionally runs with the shell and
   web search disabled and a read-only sandbox).
-- **Evidence comes from tool results.** The adapter runs the tool calls itself
-  (or, with Codex, reads them from its event stream) and fails a turn unless
-  the role's required calls succeeded. The model's description of a result is never stored as evidence.
+- **Evidence comes from tool results.** The tools are this project's own
+  functions; ADK calls them when the model asks, and the adapter records each
+  call as it runs (with Codex, it reads them from the event stream). A turn
+  fails unless the role's required calls succeeded. The model's description of
+  a result is never stored as evidence.
 - **A repair is data, not code.** It is a new version of one allowlisted file,
   `etl/transforms/order_revenue.yaml`, and is accepted only if it parses
   against a strict schema and changes a handful of lines.
@@ -133,13 +168,16 @@ this), no prompt contains it, and an incident never names its scenario.
 ## Tests and evaluation
 
 ```sh
-.venv/bin/python -m pytest                           # 130 tests, about a minute and a half
+.venv/bin/python -m pytest                           # 156 tests, about a minute on a local database
 .venv/bin/python -m datatracemind.evaluation DS-01   # one real run, scored
 ```
 
-The tests use a separate `datatracemind_test` database and spend no model
-usage: the workflow is driven by a scripted stand-in provider whose tool calls
-are real. They cover every scenario from injection to its expected ending,
+The tests never touch the demo's data. They create a separate
+`datatracemind_test` database on the server `DTM_DATABASE_URL` names, so its
+role must be allowed to create databases; set `DTM_TEST_ADMIN_URL` to run them
+on another server. They spend no model usage: the workflow is driven by a
+scripted stand-in provider whose tool calls are real. They cover every
+scenario from injection to its expected ending,
 and the blocked paths as well as the happy one: applying without approval, a
 changed patch after approval, a patch that failed validation, rejection, and
 a failed post-fix verification.
@@ -160,11 +198,10 @@ datatracemind/
   monitoring/     detection and dashboard read models
   scenarios/      fault scenarios, their briefings, and their answer keys
   tools/          read-only investigation tools and the MCP server
-  llm/            provider contract, the LiteLLM gateway and Codex adapters
+  llm/            provider contract; the Gemini (ADK), LiteLLM gateway, and Codex adapters
   agents/         role prompts and the role runner
-  orchestration/  supervisor state machine and routing
+  orchestration/  supervisor, the ADK workflow graph, and routing rules
   repair/         proposals, staging validation, approval, executor
-  observability/  neatlogs tracing
   evaluation.py   scenario evaluator
 frontend/         React: the incident console (/) and the Scenario Lab (/lab/)
 tests/
@@ -172,10 +209,6 @@ tests/
 
 ## Hackathon tools
 
-- **neatlogs** traces every investigation: one trace per run, a span per role,
-  per model turn (with token usage and estimated cost), and per tool call.
-  Approval, apply, and verification are traced as guardrail spans in the same
-  session.
 - **Entire** captures the coding-agent sessions behind each commit.
 - **cfo.ai** holds the business plan; the measured cost per investigation
   feeds it.
@@ -196,15 +229,23 @@ tests/
 
 ## Known limitations
 
-- Only DS-01 has been run with the real model so far: three investigations,
-  one of them taken through approval, apply, and verification. Every other
-  scenario passes end to end with the scripted provider only, so how the real
-  model diagnoses DS-02 through DS-17, and whether it escalates DS-06 and
-  DS-09 as intended, is not yet known.
+- Gemini has run one whole investigation for real: DS-01 on
+  `gemini-3.5-flash-lite`, which reached `awaiting_approval` with the correct
+  repair and a passing staging validation, but named the root-cause category
+  `schema_drift` where the answer key says `refund_logic`. It was not taken
+  through approval. `gemini-3.8-flash` has only run single investigator turns:
+  a free-tier key gets 5 requests a minute and 20 a day on it, and both ran
+  out. A per-minute limit is waited out; a daily one escalates the incident.
+- The other real-model runs recorded are of DS-01 too, with an earlier
+  provider: three investigations, one of them taken through approval, apply,
+  and verification. Every other scenario passes end to end with the scripted
+  provider only, so how a real model diagnoses DS-02 through DS-17, and
+  whether it escalates DS-06 and DS-09 as intended, is not yet known.
 - With DS-04 active and live traffic running, the duplication keeps growing:
   each run rereads the last few seconds and appends them again. That is the
   fault behaving as it would in production, not a second fault.
-- Cost figures are estimates at API list prices; the model runs on a
-  flat-rate ChatGPT plan.
-- There is no container image for the API yet, and the stack has not been
-  deployed.
+- Cost figures are estimates at list prices, not charges: a Gemini key on the
+  free tier is not billed, and the Codex provider runs on a flat-rate ChatGPT
+  plan.
+- The service is one process and cannot be scaled out: the ETL worker, the
+  traffic stream, and running investigations are threads inside it.

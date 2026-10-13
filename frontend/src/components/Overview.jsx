@@ -1,6 +1,5 @@
 // Overview: is the data trustworthy right now, and what is the pipeline doing?
 import { useState } from "react";
-import { usePoll } from "../api.js";
 import { ago, clock, money, number, signedMoney, titleCase } from "../format.js";
 import { Badge, Card, Empty, PageHead, TRUST_TEXT } from "./common.jsx";
 import { Icon } from "./icons.jsx";
@@ -137,8 +136,7 @@ function TrafficState({ traffic }) {
   );
 }
 
-function LiveFeed() {
-  const { data } = usePoll("/transactions/live?limit=12", 2000);
+function LiveFeed({ data }) {
   if (!data) return <Empty>Loading…</Empty>;
   return (
     <>
@@ -226,15 +224,13 @@ function RunHistory({ runs }) {
   );
 }
 
-export default function Overview({ metrics, onOpenIncident }) {
+export default function Overview({ metrics, runs, traffic, live, onOpenIncident }) {
   const currencies = metrics ? Object.keys(metrics.reconciliation.by_currency) : [];
   const [currency, setCurrency] = useState("INR");
-  const runs = usePoll("/pipeline/runs?limit=8", 3000);
-  const traffic = usePoll("/demo/traffic", 4000);
   if (!metrics) return <Empty>Loading the dashboard…</Empty>;
   const selected = currencies.includes(currency) ? currency : currencies[0];
   const incident = metrics.active_incident;
-  const lastRun = runs.data?.find((run) => run.status !== "RUNNING");
+  const lastRun = runs?.find((run) => run.status !== "RUNNING");
 
   return (
     <div className="stack">
@@ -287,11 +283,11 @@ export default function Overview({ metrics, onOpenIncident }) {
       </Card>
 
       <div className="columns">
-        <Card title="Source transactions" actions={<TrafficState traffic={traffic.data} />} flush>
-          <LiveFeed />
+        <Card title="Source transactions" actions={<TrafficState traffic={traffic} />} flush>
+          <LiveFeed data={live} />
         </Card>
         <Card title="Recent pipeline runs" flush>
-          <RunHistory runs={runs.data} />
+          <RunHistory runs={runs} />
         </Card>
       </div>
     </div>

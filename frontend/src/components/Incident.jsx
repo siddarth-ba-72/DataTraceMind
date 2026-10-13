@@ -2,7 +2,7 @@
 // anomaly -> evidence -> root cause -> patch -> staging proof -> human approval
 // -> verified recovery.
 import { useState } from "react";
-import { api, useAction, usePoll } from "../api.js";
+import { api, useAction, useSnapshot } from "../api.js";
 import { between, clock, dateTime, money, number, signedMoney, since, titleCase } from "../format.js";
 import { Badge, Button, Card, Empty, ErrorNote, Facts, Json, PageHead, Segmented } from "./common.jsx";
 import { Icon } from "./icons.jsx";
@@ -24,6 +24,10 @@ const RESTARTABLE = new Set([
   "rejected", "escalated",
 ]);
 const OFF_PATH = new Set(["validation_failed", "application_failed", "rejected", "escalated"]);
+// Statuses in which the server is moving the incident on by itself.
+const WORKING = new Set(["investigating", "validating", "applying", "verifying"]);
+// A resolved incident never changes again, so it is not polled.
+const pollEvery = ({ incident }) => (incident?.status === "resolved" ? null : WORKING.has(incident?.status) ? 3000 : 5000);
 
 function Lifecycle({ incident }) {
   const visited = new Set(incident.events.filter((e) => e.event_type === "lifecycle").map((e) => e.status));
@@ -252,7 +256,7 @@ function Runs({ runs }) {
     <Card
       id="runs"
       title="Investigation runs"
-      subtitle="One row per run; each is one neatlogs trace. Cost is an estimate at API list prices (the model runs on a flat-rate plan)."
+      subtitle="One row per run. Cost is an estimate at list prices, not a charge."
       flush
     >
       <div className="table-scroll">
@@ -270,7 +274,6 @@ function Runs({ runs }) {
               <th className="right">Input tokens</th>
               <th className="right">Output tokens</th>
               <th className="right">Est. cost</th>
-              <th>Trace ID</th>
             </tr>
           </thead>
           <tbody>
@@ -295,9 +298,6 @@ function Runs({ runs }) {
                 </td>
                 <td className="right">{number(run.output_tokens)}</td>
                 <td className="right">${Number(run.est_cost_usd).toFixed(3)}</td>
-                <td>
-                  <code>{run.trace_id ? `${run.trace_id.slice(0, 12)}…` : "not traced"}</code>
-                </td>
               </tr>
             ))}
           </tbody>
@@ -374,9 +374,11 @@ function Aside({ incident }) {
 }
 
 function IncidentDetail({ incidentId, agent, onChanged }) {
-  const { data: incident, error, refresh } = usePoll(`/incidents/${incidentId}`, 2000);
+  const { data, error, refresh } = useSnapshot(["incident"], { incident: incidentId, interval: pollEvery });
+  const { incident } = data;
   const action = useAction();
   const [showTools, setShowTools] = useState(true);
+  if (incident === null) return <ErrorNote message={`Incident ${incidentId} not found.`} />;
   if (error && !incident) return <ErrorNote message={error.message} />;
   if (!incident) return <Empty>Loading {incidentId}…</Empty>;
 
@@ -574,8 +576,7 @@ function IncidentList({ incidents, onSelect }) {
   );
 }
 
-export default function Incidents({ selectedId, onSelect, agent, onChanged }) {
-  const { data: incidents } = usePoll("/incidents", 3000);
+export default function Incidents({ incidents, selectedId, onSelect, agent, onChanged }) {
   if (selectedId) return <IncidentDetail key={selectedId} incidentId={selectedId} agent={agent} onChanged={onChanged} />;
   if (!incidents) return <Empty>Loading incidents…</Empty>;
   return <IncidentList incidents={incidents} onSelect={onSelect} />;

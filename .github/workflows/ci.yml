@@ -1,0 +1,76 @@
+# Build and test.
+#
+# Runs on every push to main that changes the application. The backend tests
+# run against a throwaway PostgreSQL, and the frontend is built the way the
+# deployment builds it. Nothing is deployed from here: the host builds and
+# starts the one service itself (see "Deploy" in README.md).
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "datatracemind/**"
+      - "etl/**"
+      - "simulator/**"
+      - "contracts/**"
+      - "infra/**"
+      - "tests/**"
+      - "frontend/**"
+      - "requirements.txt"
+      - "pytest.ini"
+      - ".github/workflows/ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      # A database for this job only; tests/conftest.py creates its own
+      # datatracemind_test database on this server.
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: dtm_admin
+          POSTGRES_PASSWORD: dtm_ci
+          POSTGRES_DB: datatracemind
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dtm_admin -d datatracemind"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      DTM_DATABASE_URL: postgresql://dtm_admin:dtm_ci@127.0.0.1:5432/datatracemind
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Build
+        run: python -m compileall -q datatracemind etl simulator
+
+      - name: Test
+        run: python -m pytest
+
+      - name: Build the frontend
+        working-directory: frontend
+        run: npm ci && npm run build

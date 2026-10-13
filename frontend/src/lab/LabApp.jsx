@@ -2,7 +2,7 @@
 // deal with it in the incident console. This page operates the demo
 // environment (traffic, fault injection, reset); the console never does.
 import { useState } from "react";
-import { api, getAccessCode, setAccessCode, useAction, usePoll } from "../api.js";
+import { api, getAccessCode, setAccessCode, useAction, useSnapshot } from "../api.js";
 import { ago, clock, money, number, since, titleCase } from "../format.js";
 import { AccessCode, Badge, Button, Card, ErrorNote, Facts, PageHead, TRUST_TEXT } from "../components/common.jsx";
 import { BrandMark, Icon } from "../components/icons.jsx";
@@ -269,30 +269,28 @@ function Environment({ lab, metrics, live, phase, openIncident, onReset, confirm
 export default function LabApp() {
   const [code, setCode] = useState(getAccessCode);
   const [confirmingReset, setConfirmingReset] = useState(false);
-  const lab = usePoll("/scenarios", 3000);
-  const metrics = usePoll("/metrics/summary", 2500);
-  const traffic = usePoll("/demo/traffic", 2000);
-  const live = usePoll("/transactions/live?limit=6", 2000);
-  const incidents = usePoll("/incidents", 3000);
-  const agent = usePoll("/agent/status", 10000);
+  const page = useSnapshot(["scenarios", "metrics", "live", "incidents", "agent", "traffic"]);
+  const { scenarios: lab, metrics, live, incidents, agent, traffic } = page.data;
+  // While the stream runs, its counters move faster than the rest of the page is refreshed.
+  const counters = useSnapshot(traffic?.running ? ["traffic"] : [], { interval: 2000 });
   const resetAction = useAction();
   const injectAction = useAction();
 
   // A server started before this page was built answers without the fields
   // the lab needs; say so instead of failing on the first missing one.
-  const outdatedApi = Boolean(lab.data) && !lab.data.environment;
-  const active = lab.data?.active;
+  const outdatedApi = page.error?.status === 404 || (Boolean(lab) && !lab.environment);
+  const active = lab?.active;
   // Whatever is unresolved right now, and the incident this scenario caused.
   // An injection made before reports were kept has no report; the open
   // incident is then the one it caused.
-  const openIncident = metrics.data?.active_incident;
+  const openIncident = metrics?.active_incident;
   const incidentId = active?.scenario_id ? (active.injection_report?.incident_id ?? openIncident?.incident_id) : null;
-  const incident = incidentId ? incidents.data?.find((row) => row.incident_id === incidentId) : null;
-  const activeScenario = lab.data?.scenarios.find((s) => s.scenario_id === active?.scenario_id);
+  const incident = incidentId ? incidents?.find((row) => row.incident_id === incidentId) : null;
+  const activeScenario = lab?.scenarios.find((s) => s.scenario_id === active?.scenario_id);
   const phase = phaseOf(active, incident, activeScenario);
   const strayIncident = phase === "baseline" ? openIncident : null;
 
-  const refreshAll = () => Promise.all([lab, metrics, traffic, live, incidents].map((poll) => poll.refresh()));
+  const refreshAll = () => Promise.all([page.refresh(), counters.refresh()]);
 
   // Reset wipes every incident, so it takes two clicks; the second must come
   // within a few seconds or the button returns to its first state.
@@ -327,7 +325,7 @@ export default function LabApp() {
           <Icon name="flask" size={13} /> Simulation
         </span>
         <span className="spacer" />
-        {agent.data?.access_code_required && (
+        {agent?.access_code_required && (
           <AccessCode
             value={code}
             onChange={(value) => {
@@ -347,15 +345,17 @@ export default function LabApp() {
           subtitle="Break the demo pipeline in one known way, then resolve it in the incident console. DataTraceMind is never told which fault is active: it has to find the cause from the same evidence an engineer would have."
         />
 
-        {lab.error && !lab.data && <ErrorNote message={`Cannot reach the DataTraceMind API: ${lab.error.message}`} />}
+        {page.error && !lab && !outdatedApi && (
+          <ErrorNote message={`Cannot reach the DataTraceMind API: ${page.error.message}`} />
+        )}
         <ErrorNote message={resetAction.error} onDismiss={resetAction.clearError} />
         {outdatedApi && (
           <ErrorNote message="The DataTraceMind server is running an older version than this page, so the lab cannot load. Restart the server to pick up the current backend." />
         )}
 
-        {lab.data && !outdatedApi && (
+        {lab && !outdatedApi && (
           <div className="stack">
-            <Flow phase={phase} trafficRunning={Boolean(traffic.data?.running)} />
+            <Flow phase={phase} trafficRunning={Boolean(traffic?.running)} />
             <Headline
               phase={phase}
               active={active}
@@ -368,9 +368,9 @@ export default function LabApp() {
 
             <div className="lab-row">
               <Environment
-                lab={lab.data}
-                metrics={metrics.data}
-                live={live.data}
+                lab={lab}
+                metrics={metrics}
+                live={live}
                 phase={phase}
                 openIncident={openIncident}
                 onReset={reset}
@@ -378,8 +378,8 @@ export default function LabApp() {
                 resetting={resetAction.busy}
               />
               <TrafficPanel
-                traffic={traffic.data}
-                etlInterval={lab.data.environment.etl_interval_seconds}
+                traffic={traffic}
+                etlInterval={lab.environment.etl_interval_seconds}
                 onChanged={refreshAll}
               />
             </div>
@@ -395,7 +395,7 @@ export default function LabApp() {
             )}
 
             <ScenarioCatalog
-              scenarios={lab.data.scenarios}
+              scenarios={lab.scenarios}
               active={active}
               incident={incident}
               blockedBy={strayIncident?.incident_id}

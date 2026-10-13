@@ -13,7 +13,6 @@ import logging
 
 from datatracemind import db, store
 from datatracemind.config import TRANSFORM_FILE
-from datatracemind.observability import span
 from datatracemind.repair import patch_store
 from etl import pipeline, transform_store
 from etl.pipeline import pipeline_lock
@@ -66,46 +65,43 @@ def _refusal(conn, incident: dict, proposal: dict, patch_hash: str) -> str | Non
 def apply_approved_patch(incident_id: str, patch_hash: str) -> dict:
     """Deploy the approved patch, then run post-fix verification."""
     with pipeline_lock():
-        with span("apply_approved_patch", "GUARDRAIL", input={"incident_id": incident_id, "patch_hash": patch_hash}) as guard:
-            with db.connect() as conn:
-                incident = store.get_incident_row(conn, incident_id, for_update=True)
-                try:
-                    proposal = patch_store.get_proposal(conn, incident_id, for_update=True)
-                except LookupError as exc:
-                    raise ApplyRefused(str(exc)) from exc
-                reason = _refusal(conn, incident, proposal, patch_hash)
-                if reason is not None:
-                    store.audit(
-                        conn, actor=ACTOR, action="repair.apply", target=proposal["proposal_id"], result="refused",
-                        details={"incident_id": incident_id, "patch_hash": patch_hash, "reason": reason},
-                    )  # fmt: skip
-                    conn.commit()
-                    guard.fail(reason)
-                    raise ApplyRefused(reason)
-                approver = conn.execute(
-                    "SELECT actor FROM dtm.approvals WHERE proposal_id = %s ORDER BY approval_id DESC LIMIT 1",
-                    (proposal["proposal_id"],),
-                ).fetchone()["actor"]
-                store.set_status(
-                    conn, incident_id, "applying", actor=ACTOR,
-                    note=f"Applying {proposal['proposal_id']} approved by {approver}",
-                    payload={"proposal_id": proposal["proposal_id"], "patch_hash": patch_hash},
-                )  # fmt: skip
-                version = transform_store.register_version(
-                    conn,
-                    proposal["new_content"],
-                    author=f"datatracemind (approved by {approver})",
-                    message=f"Repair for {incident_id}, proposal {proposal['proposal_id']}",
-                )
-                patch_store.set_proposal_status(
-                    conn, proposal["proposal_id"], "applied", applied_version=version.version
-                )
+        with db.connect() as conn:
+            incident = store.get_incident_row(conn, incident_id, for_update=True)
+            try:
+                proposal = patch_store.get_proposal(conn, incident_id, for_update=True)
+            except LookupError as exc:
+                raise ApplyRefused(str(exc)) from exc
+            reason = _refusal(conn, incident, proposal, patch_hash)
+            if reason is not None:
                 store.audit(
-                    conn, actor=ACTOR, action="repair.apply", target=proposal["proposal_id"], result="applied",
-                    details={"incident_id": incident_id, "patch_hash": patch_hash, "approved_by": approver,
-                             "transform_version": version.version},
+                    conn, actor=ACTOR, action="repair.apply", target=proposal["proposal_id"], result="refused",
+                    details={"incident_id": incident_id, "patch_hash": patch_hash, "reason": reason},
                 )  # fmt: skip
-            guard.set_output({"applied_version": version.version})
+                conn.commit()
+                raise ApplyRefused(reason)
+            approver = conn.execute(
+                "SELECT actor FROM dtm.approvals WHERE proposal_id = %s ORDER BY approval_id DESC LIMIT 1",
+                (proposal["proposal_id"],),
+            ).fetchone()["actor"]
+            store.set_status(
+                conn, incident_id, "applying", actor=ACTOR,
+                note=f"Applying {proposal['proposal_id']} approved by {approver}",
+                payload={"proposal_id": proposal["proposal_id"], "patch_hash": patch_hash},
+            )  # fmt: skip
+            version = transform_store.register_version(
+                conn,
+                proposal["new_content"],
+                author=f"datatracemind (approved by {approver})",
+                message=f"Repair for {incident_id}, proposal {proposal['proposal_id']}",
+            )
+            patch_store.set_proposal_status(
+                conn, proposal["proposal_id"], "applied", applied_version=version.version
+            )
+            store.audit(
+                conn, actor=ACTOR, action="repair.apply", target=proposal["proposal_id"], result="applied",
+                details={"incident_id": incident_id, "patch_hash": patch_hash, "approved_by": approver,
+                         "transform_version": version.version},
+            )  # fmt: skip
         return run_post_fix_verification(incident_id)
 
 
@@ -141,23 +137,20 @@ def run_post_fix_verification(incident_id: str) -> dict:
                 payload={"transform_version": proposal["applied_version"]},
             )  # fmt: skip
 
-        with span("post_fix_verification", "GUARDRAIL", input={"incident_id": incident_id}) as guard:
-            run = pipeline.run_once(trigger="post_fix")
-            failed = [check.name for check in run.failed_checks]
-            passed = run.status == "SUCCESS" and not failed and run.transform_version == proposal["applied_version"]
-            outcome = {
-                "passed": passed,
-                "etl_run_id": run.run_id,
-                "etl_status": run.status,
-                "etl_error": run.error_summary,
-                "transform_version": run.transform_version,
-                "failed_checks": failed,
-                "checks": [check.as_dict() for check in run.checks],
-            }
-            if not passed:
-                outcome["rolled_back_to_version"] = _roll_back(incident_id, proposal)
-                guard.fail(f"post-fix verification failed: {failed or run.error_summary}")
-            guard.set_output({k: v for k, v in outcome.items() if k != "checks"})
+        run = pipeline.run_once(trigger="post_fix")
+        failed = [check.name for check in run.failed_checks]
+        passed = run.status == "SUCCESS" and not failed and run.transform_version == proposal["applied_version"]
+        outcome = {
+            "passed": passed,
+            "etl_run_id": run.run_id,
+            "etl_status": run.status,
+            "etl_error": run.error_summary,
+            "transform_version": run.transform_version,
+            "failed_checks": failed,
+            "checks": [check.as_dict() for check in run.checks],
+        }
+        if not passed:
+            outcome["rolled_back_to_version"] = _roll_back(incident_id, proposal)
 
         with db.connect() as conn:
             patch_store.set_proposal_status(

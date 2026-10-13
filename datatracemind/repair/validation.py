@@ -17,7 +17,6 @@ from datetime import UTC, datetime
 
 from datatracemind import db, store
 from datatracemind.models import ValidationResult
-from datatracemind.observability import span
 from datatracemind.repair import patch_store
 from datatracemind.repair.regression import run_regression_suite
 from etl import pipeline, run_log, transform_store
@@ -129,21 +128,16 @@ def validate_proposal(incident_id: str) -> ValidationResult:
                 payload={"proposal_id": proposal["proposal_id"], "patch_hash": proposal["patch_hash"]},
             )  # fmt: skip
 
-        guard_input = {"proposal_id": proposal["proposal_id"], "patch_hash": proposal["patch_hash"]}
-        with span("staging_validation", "GUARDRAIL", input=guard_input) as guard:
-            try:
-                result = _evaluate(proposal)
-            except Exception as exc:  # validation must end in a recorded verdict
-                logger.exception("staging validation of %s crashed", proposal["proposal_id"])
-                result = ValidationResult(
-                    passed=False,
-                    patch_hash=proposal["patch_hash"],
-                    failures=[f"validation could not complete: {type(exc).__name__}: {exc}"],
-                )
-            result.validated_at = datetime.now(UTC)
-            guard.set_output({"passed": result.passed, "failures": result.failures})
-            if not result.passed:
-                guard.fail("; ".join(result.failures))
+        try:
+            result = _evaluate(proposal)
+        except Exception as exc:  # validation must end in a recorded verdict
+            logger.exception("staging validation of %s crashed", proposal["proposal_id"])
+            result = ValidationResult(
+                passed=False,
+                patch_hash=proposal["patch_hash"],
+                failures=[f"validation could not complete: {type(exc).__name__}: {exc}"],
+            )
+        result.validated_at = datetime.now(UTC)
 
         with db.connect() as conn:
             patch_store.set_proposal_status(

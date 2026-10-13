@@ -1,8 +1,8 @@
 -- DataTraceMind's own state: incidents, the agent timeline, evidence, repair
 -- proposals, approvals, and the audit log. This is the application's record
--- for the UI and for approval enforcement; it does not depend on trace
--- export. The read-only investigation role has no access to this schema, so
--- agents cannot read scenario ground truth or approval state through SQL.
+-- for the UI and for approval enforcement. The read-only investigation role
+-- has no access to this schema, so agents cannot read scenario ground truth
+-- or approval state through SQL.
 
 CREATE SCHEMA IF NOT EXISTS dtm;
 
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS dtm.incidents (
     source_metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
     target_metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
     -- Workflow state that has no table of its own: hypotheses, the selected
-    -- root cause, applicable business rules, errors, trace references.
+    -- root cause, applicable business rules, errors.
     state          JSONB NOT NULL DEFAULT '{}'::jsonb,
     -- Evaluator-only: which lab scenario was active at detection. Never put
     -- in a prompt or a tool result.
@@ -119,7 +119,6 @@ CREATE TABLE IF NOT EXISTS dtm.investigation_runs (
     scenario_id         TEXT,
     workflow_version    TEXT NOT NULL,
     model               TEXT NOT NULL,
-    trace_id            TEXT,
     status              TEXT NOT NULL,
     started_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     finished_at         TIMESTAMPTZ,

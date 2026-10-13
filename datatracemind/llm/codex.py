@@ -21,13 +21,12 @@ import sys
 import tempfile
 import threading
 import time
-from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from datatracemind.config import REPO_ROOT
+from datatracemind.config import REPO_ROOT, get_settings
 from datatracemind.llm.base import (
     Availability,
     InvalidOutput,
@@ -42,7 +41,6 @@ from datatracemind.llm.base import (
     UsageLimitReached,
 )
 from datatracemind.models import TokenUsage, ToolCallRecord
-from datatracemind.observability import SpanHandle, span
 from datatracemind.tools.registry import TOOLS
 
 logger = logging.getLogger(__name__)
@@ -54,10 +52,12 @@ REASONING_EFFORT = "medium"
 
 MCP_SERVER_NAME = "dtm"
 MCP_SERVER_SCRIPT = REPO_ROOT / "datatracemind" / "tools" / "mcp_server.py"
-# Read-only settings the tool server may inherit from this process.
-FORWARDED_ENV = ("DTM_READONLY_DATABASE_URL", "DTM_POSTGRES_PORT")
+# The one setting the tool server is given. Its value is set by this adapter,
+# because the read-only URL is normally derived from DTM_DATABASE_URL, which
+# the Codex process never sees.
+READONLY_URL_ENV = "DTM_READONLY_DATABASE_URL"
 # Never handed to the Codex process.
-WITHHELD_ENV = ("NEATLOGS_API_KEY", "LITELLM_API_KEY", "DTM_DATABASE_URL", "DTM_DEMO_ACCESS_CODE")
+WITHHELD_ENV = ("GEMINI_API_KEY", "GOOGLE_API_KEY", "LITELLM_API_KEY", "DTM_DATABASE_URL", "DTM_DEMO_ACCESS_CODE")
 
 # USD per million tokens (input, cached input, output), API list prices
 # published 10 October 2026. ChatGPT Plus is flat-rate, so a figure computed
@@ -187,7 +187,6 @@ class CodexProvider:
 
     def _command(self, call: RoleCall, workdir: Path, schema_file: Path) -> list[str]:
         server = f"mcp_servers.{MCP_SERVER_NAME}"
-        forwarded = [name for name in FORWARDED_ENV if os.environ.get(name)]
         command = [
             "codex", "exec", "--json", "--ephemeral", "--skip-git-repo-check", "--ignore-user-config",
             "-m", MODEL, "-c", f"model_reasoning_effort={_toml(REASONING_EFFORT)}",
@@ -202,9 +201,8 @@ class CodexProvider:
                 "-c", f"{server}.required=true",
                 "-c", f'{server}.default_tools_approval_mode="approve"',
                 "-c", f"{server}.enabled_tools={_toml(list(call.allowed_tools))}",
+                "-c", f"{server}.env_vars={_toml([READONLY_URL_ENV])}",
             ]  # fmt: skip
-            if forwarded:
-                command += ["-c", f"{server}.env_vars={_toml(forwarded)}"]
         command += ["--output-schema", str(schema_file), call.prompt]
         return command
 
@@ -212,24 +210,12 @@ class CodexProvider:
         unknown = [tool for tool in (*call.allowed_tools, *call.required_tools) if tool not in TOOLS]
         if unknown:
             raise ValueError(f"role {call.role} names unknown tools: {unknown}")
-        attributes = {
-            "neatlogs.llm.provider": "openai-codex-cli",
-            "neatlogs.llm.model_name": MODEL,
-            "llm.model_name": MODEL,
-            "codex.reasoning_effort": REASONING_EFFORT,
-            "codex.role": call.role,
-            "codex.allowed_tools": list(call.allowed_tools),
-            "codex.required_tools": list(call.required_tools),
-        }
-        with span(f"codex.exec {call.role}", "LLM", input=call.prompt, **attributes) as turn_span:
-            return self._run(call, turn_span)
-
-    def _run(self, call: RoleCall, turn_span: SpanHandle) -> RoleResult:
         started = time.monotonic()
         tool_calls: list[ToolCallRecord] = []
         usage = TokenUsage()
         state: dict[str, Any] = {"thread_id": None, "final": None, "failure": None, "timed_out": False}
-        open_tools: dict[str, tuple[Any, SpanHandle, float]] = {}
+        # When each tool call still in flight was started, by call ID.
+        open_tools: dict[str, float] = {}
 
         def fail(kind: type[LLMError], message: str) -> LLMError:
             return kind(message, tool_calls=tool_calls, usage=usage, duration_s=time.monotonic() - started)
@@ -240,6 +226,7 @@ class CodexProvider:
             schema_file = Path(scratch) / "schema.json"
             schema_file.write_text(json.dumps(strict_schema(call.output_model)))
             env = {key: value for key, value in os.environ.items() if key not in WITHHELD_ENV}
+            env[READONLY_URL_ENV] = get_settings().readonly_database_url or ""
             try:
                 process = subprocess.Popen(
                     self._command(call, workdir, schema_file),
@@ -273,33 +260,10 @@ class CodexProvider:
             finally:
                 watchdog.cancel()
                 stderr_reader.join(timeout=5)
-                # A tool call still open here never completed (timeout or crash).
-                for stack, handle, _ in open_tools.values():
-                    handle.fail("the turn ended before this tool call completed")
-                    if stack is not None:
-                        stack.close()
                 self._dump_events(call.role, raw_events, stderr_tail)
 
         duration = time.monotonic() - started
         cost = estimate_cost_usd(MODEL, usage)
-        turn_span.record_usage(
-            provider="openai-codex-cli",
-            model=MODEL,
-            input_tokens=usage.input_tokens,
-            cached_input_tokens=usage.cached_input_tokens,
-            output_tokens=usage.output_tokens,
-            reasoning_tokens=usage.reasoning_output_tokens,
-            cost_usd=cost,
-        )
-        turn_span.set(
-            **{
-                "codex.thread_id": state["thread_id"],
-                "codex.duration_s": round(duration, 2),
-                "codex.tool_calls": len(tool_calls),
-                "codex.failed_tool_calls": sum(1 for c in tool_calls if c.status == "failed"),
-                "codex.cost_basis": "estimate at API list prices; the ChatGPT plan is flat-rate",
-            }
-        )
         stderr_text = "".join(stderr_tail)[-STDERR_TAIL_CHARS:]
 
         if state["timed_out"]:
@@ -325,7 +289,6 @@ class CodexProvider:
         except ValidationError as exc:
             raise fail(InvalidOutput, f"{call.role}: final message does not fit the schema: {exc}") from exc
 
-        turn_span.set_output(output.model_dump())
         return RoleResult(
             output=output,
             tool_calls=tool_calls,
@@ -354,32 +317,13 @@ class CodexProvider:
         except OSError:
             logger.warning("could not write the Codex event log", exc_info=True)
 
-    @staticmethod
-    def _tool_span(item: dict):
-        """Span for one MCP tool call reported by Codex."""
-        name = item.get("tool", "unknown")
-        arguments = item.get("arguments") or {}
-        spec = TOOLS.get(name)
-        return span(
-            name,
-            "MCP_TOOL",
-            input=arguments,
-            **{
-                "neatlogs.mcp_tool.name": name,
-                "neatlogs.mcp_tool.arguments": arguments,
-                "neatlogs.mcp_tool.description": spec.description if spec else None,
-                "neatlogs.mcp_tool.call_id": item.get("id"),
-                "mcp.server": item.get("server"),
-            },
-        )
-
     def _handle_event(
         self,
         line: str,
         state: dict[str, Any],
         tool_calls: list[ToolCallRecord],
         usage: TokenUsage,
-        open_tools: dict[str, tuple[Any, SpanHandle, float]],
+        open_tools: dict[str, float],
     ) -> None:
         """Apply one line of the JSON event stream. Unknown events are skipped."""
         line = line.strip()
@@ -394,21 +338,11 @@ class CodexProvider:
         if kind == "thread.started":
             state["thread_id"] = event.get("thread_id")
         elif kind == "item.started" and item.get("type") == "mcp_tool_call":
-            key = item.get("id") or item.get("tool", "unknown")
-            # A span is opened while the call runs, so the trace shows its real
-            # latency. Spans nest by time, so only one can be live at once: a
-            # call that overlaps another gets its span when it completes.
-            live = None
-            if not any(entry[0] is not None for entry in open_tools.values()):
-                live = ExitStack()
-                handle = live.enter_context(self._tool_span(item))
-            else:
-                handle = SpanHandle()
-            open_tools[key] = (live, handle, time.monotonic())
+            open_tools[item.get("id") or item.get("tool", "unknown")] = time.monotonic()
         elif kind == "item.completed" and item.get("type") == "mcp_tool_call":
             name = item.get("tool", "unknown")
             key = item.get("id") or name
-            stack, handle, began = open_tools.pop(key, (None, SpanHandle(), time.monotonic()))
+            began = open_tools.pop(key, time.monotonic())
             ok = item.get("status") == "completed" and not item.get("error")
             result = _tool_result(item) if ok else None
             record = ToolCallRecord(
@@ -420,15 +354,6 @@ class CodexProvider:
                 duration_s=round(time.monotonic() - began, 3),
             )
             tool_calls.append(record)
-            if stack is None:
-                stack = ExitStack()
-                handle = stack.enter_context(self._tool_span(item))
-            handle.set(**{"mcp.tool.duration_s": record.duration_s})
-            if ok:
-                handle.set(**{"output.value": result, "neatlogs.mcp_tool.output": result})
-            else:
-                handle.fail(record.error or "tool call failed")
-            stack.close()
         elif kind == "item.completed" and item.get("type") == "agent_message":
             state["final"] = item.get("text")
         elif kind == "turn.completed":
