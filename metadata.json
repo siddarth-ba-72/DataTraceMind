@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4SM2XD2GTZY0AG0WXR1V6TH",
+  "strategy": "manual-commit",
+  "branch": "simpler-arch",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "README.md",
+    "datatracemind/db.py",
+    "frontend/src/App.jsx",
+    "frontend/src/api.js",
+    "frontend/src/components/Audit.jsx",
+    "frontend/src/components/Incident.jsx",
+    "frontend/src/components/Overview.jsx",
+    "frontend/src/lab/LabApp.jsx",
+    "requirements.txt",
+    "tests/test_pipeline.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 102,
+    "cache_creation_tokens": 250402,
+    "cache_read_tokens": 9073878,
+    "output_tokens": 135411,
+    "api_call_count": 50
+  }
+}
