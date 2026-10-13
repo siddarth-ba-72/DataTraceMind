@@ -24,6 +24,10 @@ const RESTARTABLE = new Set([
   "rejected", "escalated",
 ]);
 const OFF_PATH = new Set(["validation_failed", "application_failed", "rejected", "escalated"]);
+// Statuses in which the server is moving the incident on by itself.
+const WORKING = new Set(["investigating", "validating", "applying", "verifying"]);
+// A resolved incident never changes again, so it is not polled.
+const pollEvery = (incident) => (incident?.status === "resolved" ? null : WORKING.has(incident?.status) ? 3000 : 5000);
 
 function Lifecycle({ incident }) {
   const visited = new Set(incident.events.filter((e) => e.event_type === "lifecycle").map((e) => e.status));
@@ -370,7 +374,7 @@ function Aside({ incident }) {
 }
 
 function IncidentDetail({ incidentId, agent, onChanged }) {
-  const { data: incident, error, refresh } = usePoll(`/incidents/${incidentId}`, 2000);
+  const { data: incident, error, refresh } = usePoll(`/incidents/${incidentId}`, pollEvery);
   const action = useAction();
   const [showTools, setShowTools] = useState(true);
   if (error && !incident) return <ErrorNote message={error.message} />;
@@ -571,7 +575,8 @@ function IncidentList({ incidents, onSelect }) {
 }
 
 export default function Incidents({ selectedId, onSelect, agent, onChanged }) {
-  const { data: incidents } = usePoll("/incidents", 3000);
+  // The list is not on screen while one incident is open.
+  const { data: incidents } = usePoll(selectedId ? null : "/incidents", 5000);
   if (selectedId) return <IncidentDetail key={selectedId} incidentId={selectedId} agent={agent} onChanged={onChanged} />;
   if (!incidents) return <Empty>Loading incidents…</Empty>;
   return <IncidentList incidents={incidents} onSelect={onSelect} />;

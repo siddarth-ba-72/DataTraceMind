@@ -138,7 +138,7 @@ function TrafficState({ traffic }) {
 }
 
 function LiveFeed() {
-  const { data } = usePoll("/transactions/live?limit=12", 2000);
+  const { data } = usePoll("/transactions/live?limit=12", 5000);
   if (!data) return <Empty>Loading…</Empty>;
   return (
     <>
@@ -229,8 +229,8 @@ function RunHistory({ runs }) {
 export default function Overview({ metrics, onOpenIncident }) {
   const currencies = metrics ? Object.keys(metrics.reconciliation.by_currency) : [];
   const [currency, setCurrency] = useState("INR");
-  const runs = usePoll("/pipeline/runs?limit=8", 3000);
-  const traffic = usePoll("/demo/traffic", 4000);
+  const runs = usePoll("/pipeline/runs?limit=8", 5000);
+  const traffic = usePoll("/demo/traffic", 5000);
   if (!metrics) return <Empty>Loading the dashboard…</Empty>;
   const selected = currencies.includes(currency) ? currency : currencies[0];
   const incident = metrics.active_incident;

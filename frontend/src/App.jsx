@@ -51,7 +51,7 @@ function AgentCard({ agent }) {
 export default function App() {
   const [route, setRoute] = useState(readRoute);
   const [code, setCode] = useState(getAccessCode);
-  const metrics = usePoll("/metrics/summary", 2500);
+  const metrics = usePoll("/metrics/summary", 5000);
   const agent = usePoll("/agent/status", 5000);
 
   useEffect(() => {

@@ -12,7 +12,7 @@ function matches(entry, query) {
 }
 
 export default function Audit() {
-  const { data } = usePoll("/audit?limit=300", 4000);
+  const { data } = usePoll("/audit?limit=300", 5000);
   const [query, setQuery] = useState("");
   if (!data) return <Empty>Loading the audit log…</Empty>;
   const shown = data.filter((entry) => matches(entry, query.trim()));

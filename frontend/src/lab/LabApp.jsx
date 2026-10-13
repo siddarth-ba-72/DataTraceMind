@@ -269,11 +269,12 @@ function Environment({ lab, metrics, live, phase, openIncident, onReset, confirm
 export default function LabApp() {
   const [code, setCode] = useState(getAccessCode);
   const [confirmingReset, setConfirmingReset] = useState(false);
-  const lab = usePoll("/scenarios", 3000);
-  const metrics = usePoll("/metrics/summary", 2500);
-  const traffic = usePoll("/demo/traffic", 2000);
-  const live = usePoll("/transactions/live?limit=6", 2000);
-  const incidents = usePoll("/incidents", 3000);
+  const lab = usePoll("/scenarios", 5000);
+  const metrics = usePoll("/metrics/summary", 5000);
+  // The counters only move while the stream runs.
+  const traffic = usePoll("/demo/traffic", (status) => (status?.running ? 2000 : 5000));
+  const live = usePoll("/transactions/live?limit=6", 5000);
+  const incidents = usePoll("/incidents", 5000);
   const agent = usePoll("/agent/status", 10000);
   const resetAction = useAction();
   const injectAction = useAction();

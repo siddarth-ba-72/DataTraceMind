@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import time
+from contextlib import ExitStack
+
 import psycopg
 import pytest
 
@@ -96,9 +99,37 @@ def test_readonly_role_cannot_write_or_read_application_state(baseline):
         assert conn.execute("SHOW statement_timeout").fetchone()["statement_timeout"] == "5s"
 
 
+def test_a_reused_connection_does_not_keep_the_last_callers_settings(baseline):
+    db.close_pools()  # so that the second block is certain to get the first one's connection
+    with db.connect() as conn:
+        conn.read_only = True
+        conn.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
+        first = conn.execute("SELECT pg_backend_pid() AS pid").fetchone()["pid"]
+    with db.connect() as conn:
+        assert conn.execute("SELECT pg_backend_pid() AS pid").fetchone()["pid"] == first
+        assert conn.execute("SHOW transaction_read_only").fetchone()["transaction_read_only"] == "off"
+        assert conn.execute("SHOW transaction_isolation").fetchone()["transaction_isolation"] == "read committed"
+
+
+def test_connections_the_server_dropped_are_replaced_at_once(baseline):
+    db.close_pools()
+    with ExitStack() as held:  # leaves four idle connections behind
+        pids = [
+            held.enter_context(db.connect()).execute("SELECT pg_backend_pid() AS pid").fetchone()["pid"]
+            for _ in range(4)
+        ]
+    with db.connect(autocommit=True) as other:  # a connection of its own, not one of the four
+        other.execute("SELECT pg_terminate_backend(pid, 5000) FROM unnest(%s::int[]) AS pid", (pids,))
+    started = time.monotonic()
+    assert db.fetch_one("SELECT pg_backend_pid() AS pid")["pid"] not in pids
+    # Trying the four one by one would pause for seconds between them.
+    assert time.monotonic() - started < 2
+
+
 def test_pipeline_lock_is_reentrant_and_excludes_other_sessions(baseline):
     key = pipeline._ADVISORY_LOCK_KEY
-    probe = "SELECT pg_try_advisory_lock(%s) AS acquired"
+    # Transaction-scoped, so the probe does not keep the lock on a reused connection.
+    probe = "SELECT pg_try_advisory_xact_lock(%s) AS acquired"
     with pipeline.pipeline_lock(), pipeline.pipeline_lock():
         # Another database session (as another process would be) cannot take it.
         assert db.fetch_one(probe, (key,))["acquired"] is False

@@ -100,11 +100,13 @@ stream, and running investigations are threads inside it, so a second worker
 or a host that starts the app per request would each have their own.
 
 Run it in the same region as the database. The app makes many small queries,
-each on a connection of its own, so its speed follows the network distance:
-measured from India against a database in the US, a statement took about a
-quarter of a second, the first start (which seeds the baseline) about eight
-minutes, and one pipeline run longer than its six-second schedule. A pooled
-connection string, such as the one Neon gives by default, works.
+so its speed follows the network distance: measured from India against a
+database in the US, a statement took about a quarter of a second, opening a
+connection about a second and a half, and the first start (which seeds the
+baseline) about eight minutes. The app keeps up to 20 connections open and
+reuses them; only the investigation tools, which run as the read-only role,
+open one per call. A pooled connection string, such as the one Neon gives by
+default, works.
 
 ## Scenarios
 

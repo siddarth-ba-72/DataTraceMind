@@ -20,7 +20,7 @@ export function setAccessCode(code) {
   }
 }
 
-export async function api(path, { method = "GET", body } = {}) {
+export async function api(path, { method = "GET", body, timeoutMs } = {}) {
   const headers = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const code = getAccessCode();
@@ -29,6 +29,7 @@ export async function api(path, { method = "GET", body } = {}) {
     method,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
   });
   let payload = null;
   try {
@@ -48,37 +49,84 @@ export async function api(path, { method = "GET", body } = {}) {
   return payload;
 }
 
-// Poll `path` every `intervalMs`. Keeps the last good data while a refresh is
-// in flight or failing, so the page never flashes empty.
-export function usePoll(path, intervalMs = 2500) {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
-  const latest = useRef(path);
-  latest.current = path;
+// A poll left unanswered this long is given up, so that the next one can be sent.
+const POLL_TIMEOUT_MS = 30000;
 
-  const refresh = useCallback(async () => {
-    if (!path) return;
-    try {
-      const next = await api(path);
-      if (latest.current === path) {
-        setData(next);
-        setError(null);
-      }
-    } catch (err) {
-      if (latest.current === path) setError(err);
-    }
-  }, [path]);
+// The last answer for each path, so a page that is opened again shows what it
+// last knew while it loads the current state.
+const lastAnswer = new Map();
+
+// Keep `path` fresh. The next request goes out `interval` ms after the last one
+// was answered, so a slow server is never asked twice at once, and nothing is
+// sent while the tab is hidden. `interval` may be a function of the last answer
+// (null before the first); when it is 0 or null the answer will not change by
+// itself, and it is fetched once, on `refresh()`, and when the tab is shown again.
+// The last good data is kept while a refresh is in flight or failing, so the
+// page never flashes empty.
+export function usePoll(path, interval = 5000) {
+  const [answer, setAnswer] = useState({ path: null, data: null, error: null });
+  const latestInterval = useRef(interval);
+  latestInterval.current = interval;
+  const load = useRef(null);
+  // A new fixed interval restarts the poll; a function is read each time it is needed.
+  const fixedInterval = typeof interval === "function" ? null : interval;
 
   useEffect(() => {
-    setData(null);
-    setError(null);
     if (!path) return undefined;
-    refresh();
-    const timer = window.setInterval(refresh, intervalMs);
-    return () => window.clearInterval(timer);
-  }, [path, intervalMs, refresh]);
+    let stopped = false;
+    let timer = null;
+    let sent = 0;
+    let shown = 0;
+    let pending = 0;
+    let known = lastAnswer.get(path) ?? null;
 
-  return { data, error, refresh };
+    const schedule = () => {
+      const every = typeof latestInterval.current === "function" ? latestInterval.current(known) : latestInterval.current;
+      if (every && !document.hidden) timer = window.setTimeout(fetchNow, every);
+    };
+    const fetchNow = async () => {
+      window.clearTimeout(timer);
+      const id = ++sent;
+      pending += 1;
+      let data = null;
+      let error = null;
+      try {
+        data = await api(path, { timeoutMs: POLL_TIMEOUT_MS });
+      } catch (err) {
+        error = err;
+      }
+      pending -= 1;
+      if (stopped) return;
+      // An answer overtaken by that of a later request is already out of date.
+      if (id > shown) {
+        shown = id;
+        if (!error) {
+          known = data;
+          lastAnswer.set(path, data);
+        }
+        setAnswer({ path, data: known, error });
+      }
+      if (pending === 0) schedule();
+    };
+    const onVisibility = () => {
+      if (document.hidden) window.clearTimeout(timer);
+      else if (pending === 0) fetchNow();
+    };
+
+    load.current = fetchNow;
+    fetchNow();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stopped = true;
+      load.current = null;
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [path, fixedInterval]);
+
+  const refresh = useCallback(() => load.current?.(), []);
+  const current = answer.path === path ? answer : { data: lastAnswer.get(path) ?? null, error: null };
+  return { data: current.data, error: current.error, refresh };
 }
 
 // Run a mutating call and expose its busy and error state to a button.
